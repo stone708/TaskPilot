@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  CalendarDays,
-  CheckCircle2,
-  ChevronRight,
+	CalendarDays,
+	ChevronRight,
   Command,
   Inbox,
   ListTodo,
@@ -258,7 +257,7 @@ function Sidebar({
 }) {
   return (
     <aside className={`sidebar ${drawerOpen ? 'open' : ''}`}>
-      <div className="brand"><CheckCircle2 size={19} /> TaskPilot</div>
+		<div className="brand"><img src="/taskpilot-icon.png" alt="" /> TaskPilot</div>
       <button className="drawer-close" aria-label="Close navigation" onClick={onClose}><X size={18} /></button>
       <Nav icon={<ListTodo />} label="Today" count={stats.today} active={scope === 'today'} onClick={() => onNavigate('today')} />
       <Nav icon={<Inbox />} label="Inbox" count={stats.inbox} active={scope === 'inbox'} onClick={() => onNavigate('inbox')} />

@@ -15,6 +15,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .app-shell { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { position: relative; z-index: 3; display: flex; flex-direction: column; padding: 18px 12px; border-right: 1px solid #e5e7eb; background: #fff; }
 .brand { display: flex; align-items: center; gap: 8px; margin: 2px 8px 20px; color: #3534a8; font-size: 16px; font-weight: 750; }
+.brand img { width: 22px; height: 22px; object-fit: contain; }
 .nav { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 34px; padding: 6px 9px; border: 0; border-radius: 7px; color: #505867; background: transparent; font-size: 13px; text-align: left; }
 .nav svg { width: 16px; height: 16px; color: #8a93a3; }
 .nav span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
