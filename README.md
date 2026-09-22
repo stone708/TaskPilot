@@ -8,7 +8,8 @@ TaskPilot 是一个本地优先、单用户的个人任务管理器。它将 Rea
 
 - 创建、编辑、删除任务，支持 Todo、Doing、Holding、Done 状态与五级优先级。
 - 支持开始日期、到期日期、标签、描述、子任务与双向关联任务。
-- Today、Inbox、状态、标签和全局搜索视图；Today 使用应用设置的时区计算。
+- Today、Inbox、状态、标签和全局搜索视图；支持 List 与四列 Kanban 视图，Today 使用应用设置的时区计算。
+- 描述支持安全的 GitHub Flavored Markdown 预览，包括标题、列表、表格、链接与代码块。
 - 乐观版本号：Web、REST 和 MCP 同时编辑同一任务时，旧版本更新会返回冲突。
 - 本地 REST API、命令行和基于官方 Go SDK 的 MCP Streamable HTTP endpoint。
 - Go 可执行文件内嵌 Web 产物；macOS 和 Windows 交叉构建脚本随仓库提供。
@@ -48,6 +49,8 @@ go run ./cmd/taskpilot --data /tmp/taskpilot-dev.db serve
 - `C`：新建任务（输入框中不会触发）。
 - `Ctrl/Cmd + K`：聚焦全局搜索。
 - `Esc`：关闭任务编辑框；有未保存修改时会请求确认。
+- 使用页面标题右侧的 **List / Kanban** 切换任务呈现方式。Kanban 保留当前筛选范围，拖动卡片到另一状态列即可更新任务状态。
+- 点击任务会打开全屏工作区。Description 区域使用 **Edit / Preview** 编辑并预览 Markdown；任务描述保存为原始 Markdown 文本，可继续通过 REST、MCP 和 CLI 使用。
 
 ### CLI
 
