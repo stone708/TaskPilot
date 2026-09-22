@@ -46,10 +46,13 @@ export function TaskEditor({
   onClose: () => void;
 }) {
   const initialImages = useRef(prepareEditableMarkdown(task.description));
-  const [draft, setDraft] = useState(() => ({
+  const initialDraft = {
     ...task,
     description: initialImages.current.markdown,
-  }));
+  };
+  const draftRef = useRef(initialDraft);
+  const imagesRef = useRef(initialImages.current.images);
+  const [draft, setDraft] = useState(initialDraft);
   const [images, setImages] = useState<Map<string, InlineImage>>(
     initialImages.current.images,
   );
@@ -71,11 +74,17 @@ export function TaskEditor({
   const candidates = allTasks.filter(
     (item) => item.id !== draft.id && !draft.related.includes(item.id),
   );
-  const update = <K extends keyof Task>(key: K, value: Task[K]) =>
-    setDraft((current) => ({ ...current, [key]: value }));
+  const update = <K extends keyof Task>(key: K, value: Task[K]) => {
+    const next = { ...draftRef.current, [key]: value };
+    draftRef.current = next;
+    setDraft(next);
+  };
   const currentTask = () => ({
-    ...draft,
-    description: hydrateImageReferences(draft.description, images),
+    ...draftRef.current,
+    description: hydrateImageReferences(
+      draftRef.current.description,
+      imagesRef.current,
+    ),
     tags: parseTags(tagText),
   });
   const changed = () => JSON.stringify(currentTask()) !== original.current;
@@ -146,17 +155,22 @@ export function TaskEditor({
       const dataUrl = await readImageAsDataUrl(file);
       const id = `image-${crypto.randomUUID()}`;
       const reference = imageReference(file.name, id);
-      setImages((current) =>
-        new Map(current).set(id, { id, dataUrl, name: file.name }),
-      );
-      setDraft((current) => {
-        const position =
-          descriptionRef.current?.selectionStart ?? current.description.length;
-        return {
-          ...current,
-          description: `${current.description.slice(0, position)}${reference}${current.description.slice(position)}`,
-        };
+      const nextImages = new Map(imagesRef.current).set(id, {
+        id,
+        dataUrl,
+        name: file.name,
       });
+      imagesRef.current = nextImages;
+      setImages(nextImages);
+      const position =
+        descriptionRef.current?.selectionStart ??
+        draftRef.current.description.length;
+      const nextDraft = {
+        ...draftRef.current,
+        description: `${draftRef.current.description.slice(0, position)}${reference}${draftRef.current.description.slice(position)}`,
+      };
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
       setError("");
       window.requestAnimationFrame(() => descriptionRef.current?.focus());
     } catch (cause) {
