@@ -710,6 +710,31 @@ h1 {
   background: #fff;
   box-shadow: 0 1px 2px rgba(27, 31, 35, 0.08);
 }
+.description-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.description-tools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #d9ddef;
+  border-radius: 6px;
+  padding: 5px 7px;
+  color: #4645bc;
+  background: #f8f8ff;
+  font-size: 11px;
+  font-weight: 650;
+}
+.description-tools span {
+  color: #838c99;
+  font-size: 11px;
+}
+.description-tools input {
+  display: none;
+}
 .markdown-preview {
   min-height: 124px;
   padding: 14px;
@@ -777,6 +802,14 @@ h1 {
 }
 .markdown-preview a {
   color: #4546b7;
+}
+.markdown-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border: 1px solid #e0e4ea;
+  border-radius: 7px;
 }
 .markdown-empty {
   margin: 0;

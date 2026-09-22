@@ -51,6 +51,7 @@ go run ./cmd/taskpilot --data /tmp/taskpilot-dev.db serve
 - `Esc`：关闭任务编辑框；有未保存修改时会请求确认。
 - 使用页面标题右侧的 **List / Kanban** 切换任务呈现方式。Kanban 保留当前筛选范围，拖动卡片到另一状态列即可更新任务状态。
 - 点击任务会打开全屏工作区。Description 区域使用 **Edit / Preview** 编辑并预览 Markdown；任务描述保存为原始 Markdown 文本，可继续通过 REST、MCP 和 CLI 使用。
+- 在 Description 的 **Add image** 中可插入 PNG、JPEG、GIF、WebP 或 AVIF 图片（单张最多 5 MB）。图片会作为 Base64 数据 URI 保存在 Markdown 描述中；编辑时显示短引用，避免 Base64 占满输入框。
 
 ### CLI
 

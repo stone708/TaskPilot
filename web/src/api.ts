@@ -60,7 +60,7 @@ export const taskApi = {
     (await request<Partial<Task>[]>("/tasks", undefined, signal)).map(
       normalizeTask,
     ),
-  tags: () => request<string[]>("/tags"),
+  tags: async () => (await request<string[] | null>("/tags")) || [],
   stats: () => request<Record<string, number>>("/stats"),
   save: async (task: Task) =>
     normalizeTask(

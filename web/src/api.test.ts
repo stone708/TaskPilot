@@ -51,4 +51,13 @@ describe("task API payloads", () => {
     expect(payload).not.toHaveProperty("id");
     expect(payload.tags).toEqual([]);
   });
+
+  it("normalizes an empty tag response to an array", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => null }),
+    );
+
+    await expect(taskApi.tags()).resolves.toEqual([]);
+  });
 });

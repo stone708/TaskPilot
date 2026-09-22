@@ -1,7 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { Eye, FilePenLine, Trash2, X } from "lucide-react";
+import { Eye, FilePenLine, ImagePlus, Trash2, X } from "lucide-react";
 import { priorities, Status, statuses, Task } from "../types";
+import {
+  hydrateImageReferences,
+  imageReference,
+  InlineImage,
+  prepareEditableMarkdown,
+  readImageAsDataUrl,
+} from "./inlineImages";
 import { MarkdownPreview } from "./MarkdownPreview";
+
+const supportedImageTypes = new Set([
+  "image/avif",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const maximumImageSize = 5 * 1024 * 1024;
 
 const parseTags = (value: string) => [
   ...new Set(
@@ -29,7 +45,14 @@ export function TaskEditor({
   onJump: (task: Task) => void;
   onClose: () => void;
 }) {
-  const [draft, setDraft] = useState(task);
+  const initialImages = useRef(prepareEditableMarkdown(task.description));
+  const [draft, setDraft] = useState(() => ({
+    ...task,
+    description: initialImages.current.markdown,
+  }));
+  const [images, setImages] = useState<Map<string, InlineImage>>(
+    initialImages.current.images,
+  );
   const [tagText, setTagText] = useState(task.tags.join(", "));
   const [descriptionMode, setDescriptionMode] = useState<"edit" | "preview">(
     "edit",
@@ -37,6 +60,8 @@ export function TaskEditor({
   const [error, setError] = useState("");
   const original = useRef(JSON.stringify(task));
   const titleRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const returnFocus = useRef<HTMLElement | null>(
     document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -48,8 +73,12 @@ export function TaskEditor({
   );
   const update = <K extends keyof Task>(key: K, value: Task[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
-  const changed = () =>
-    JSON.stringify({ ...draft, tags: parseTags(tagText) }) !== original.current;
+  const currentTask = () => ({
+    ...draft,
+    description: hydrateImageReferences(draft.description, images),
+    tags: parseTags(tagText),
+  });
+  const changed = () => JSON.stringify(currentTask()) !== original.current;
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -73,9 +102,8 @@ export function TaskEditor({
 
   const save = async () => {
     const next = {
-      ...draft,
+      ...currentTask(),
       title: draft.title.trim(),
-      tags: parseTags(tagText),
     };
     if (!next.title) {
       setError("Task title is required.");
@@ -100,6 +128,42 @@ export function TaskEditor({
   const jump = (id: string) => {
     const related = allTasks.find((item) => item.id === id);
     if (related && requestClose()) onJump(related);
+  };
+
+  const addImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!supportedImageTypes.has(file.type)) {
+      setError("Choose a PNG, JPEG, GIF, WebP, or AVIF image.");
+      return;
+    }
+    if (file.size > maximumImageSize) {
+      setError("Images must be 5 MB or smaller.");
+      return;
+    }
+    try {
+      const dataUrl = await readImageAsDataUrl(file);
+      const id = `image-${crypto.randomUUID()}`;
+      const reference = imageReference(file.name, id);
+      setImages((current) =>
+        new Map(current).set(id, { id, dataUrl, name: file.name }),
+      );
+      setDraft((current) => {
+        const position =
+          descriptionRef.current?.selectionStart ?? current.description.length;
+        return {
+          ...current,
+          description: `${current.description.slice(0, position)}${reference}${current.description.slice(position)}`,
+        };
+      });
+      setError("");
+      window.requestAnimationFrame(() => descriptionRef.current?.focus());
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not add this image.",
+      );
+    }
   };
 
   return (
@@ -206,16 +270,40 @@ export function TaskEditor({
                 </button>
               </div>
               {descriptionMode === "edit" ? (
-                <textarea
-                  value={draft.description}
-                  onChange={(event) =>
-                    update("description", event.target.value)
-                  }
-                  placeholder="Use Markdown to add context…"
-                  aria-label="Description"
-                />
+                <>
+                  <div className="description-tools">
+                    <button
+                      type="button"
+                      onClick={() => imageInputRef.current?.click()}
+                    >
+                      <ImagePlus size={14} /> Add image
+                    </button>
+                    <span>
+                      Images are stored with the task; Base64 stays hidden while
+                      editing.
+                    </span>
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                      aria-label="Add image to description"
+                      onChange={addImage}
+                    />
+                  </div>
+                  <textarea
+                    ref={descriptionRef}
+                    value={draft.description}
+                    onChange={(event) =>
+                      update("description", event.target.value)
+                    }
+                    placeholder="Use Markdown to add context…"
+                    aria-label="Description"
+                  />
+                </>
               ) : (
-                <MarkdownPreview source={draft.description} />
+                <MarkdownPreview
+                  source={hydrateImageReferences(draft.description, images)}
+                />
               )}
             </Section>
             <Section title="Related tasks">

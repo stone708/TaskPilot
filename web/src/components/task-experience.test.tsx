@@ -9,6 +9,10 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import {
+  hydrateImageReferences,
+  prepareEditableMarkdown,
+} from "./inlineImages";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { TaskBoard } from "./TaskBoard";
 import { TaskEditor } from "./TaskEditor";
@@ -87,6 +91,20 @@ describe("MarkdownPreview", () => {
   });
 });
 
+describe("inline Markdown images", () => {
+  it("keeps Base64 out of the editable source and restores it before preview or save", () => {
+    const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const source = `Before\n\n![Diagram](${dataUrl})\n\nAfter`;
+    const editable = prepareEditableMarkdown(source);
+
+    expect(editable.markdown).toContain("taskpilot-image:image-1");
+    expect(editable.markdown).not.toContain("iVBORw0KGgo=");
+    expect(hydrateImageReferences(editable.markdown, editable.images)).toBe(
+      source,
+    );
+  });
+});
+
 describe("TaskEditor", () => {
   it("uses the full-screen workspace and switches a draft to Markdown preview", async () => {
     const user = userEvent.setup();
@@ -106,6 +124,39 @@ describe("TaskEditor", () => {
     await user.click(screen.getByRole("tab", { name: "Preview" }));
     expect(screen.getByRole("heading", { name: "Release notes" })).toBeTruthy();
     expect(screen.getByText("Kanban")).toBeTruthy();
+  });
+
+  it("renders stored Base64 images without exposing their contents in Edit mode", async () => {
+    const user = userEvent.setup();
+    const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const onSave = vi.fn(async () => undefined);
+    const item = task({ description: `![Diagram](${dataUrl})` });
+    const { container } = render(
+      <TaskEditor
+        task={item}
+        allTasks={[item]}
+        busy={false}
+        onClose={vi.fn()}
+        onDelete={vi.fn(async () => undefined)}
+        onJump={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Description" });
+    expect((editor as HTMLTextAreaElement).value).toContain(
+      "taskpilot-image:image-1",
+    );
+    expect((editor as HTMLTextAreaElement).value).not.toContain("iVBORw0KGgo=");
+
+    await user.click(screen.getByRole("tab", { name: "Preview" }));
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(dataUrl);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ description: `![Diagram](${dataUrl})` }),
+      ),
+    );
   });
 });
 
