@@ -23,6 +23,11 @@ export function prepareEditableMarkdown(source: string) {
   return { images, markdown };
 }
 
+export type MissingInlineImage = {
+  id: string;
+  name: string;
+};
+
 export function hydrateImageReferences(
   source: string,
   images: Map<string, InlineImage>,
@@ -34,6 +39,31 @@ export function hydrateImageReferences(
       return image ? `${prefix}${image.dataUrl}${suffix}` : match;
     },
   );
+}
+
+export function findMissingImageReferences(
+  source: string,
+  images: Map<string, InlineImage>,
+): MissingInlineImage[] {
+  const missing: MissingInlineImage[] = [];
+  source.replace(
+    imageReferencePattern,
+    (_, prefix: string, id: string) => {
+      if (!images.has(id)) {
+        const name = prefix.slice(2, -2).trim() || "Image";
+        missing.push({ id, name });
+      }
+      return _;
+    },
+  );
+  return missing;
+}
+
+export function replaceMissingImageReferences(source: string) {
+  return source.replace(imageReferencePattern, (_, prefix: string) => {
+    const name = prefix.slice(2, -2).trim() || "Image";
+    return `_${name} is unavailable_`;
+  });
 }
 
 export function imageReference(name: string, id: string) {

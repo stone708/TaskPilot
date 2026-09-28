@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import {
+  findMissingImageReferences,
   hydrateImageReferences,
   prepareEditableMarkdown,
 } from "./inlineImages";
@@ -103,6 +104,14 @@ describe("inline Markdown images", () => {
       source,
     );
   });
+
+  it("identifies an image reference whose Base64 data is unavailable", () => {
+    const missing = findMissingImageReferences(
+      "![Lost image](taskpilot-image:image-missing)",
+      new Map(),
+    );
+    expect(missing).toEqual([{ id: "image-missing", name: "Lost image" }]);
+  });
 });
 
 describe("TaskEditor", () => {
@@ -156,6 +165,34 @@ describe("TaskEditor", () => {
       expect(onSave).toHaveBeenCalledWith(
         expect.objectContaining({ description: `![Diagram](${dataUrl})` }),
       ),
+    );
+  });
+  it("explains missing images in Preview and blocks saving their broken reference", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async () => undefined);
+    const item = task({
+      description: "![Lost image](taskpilot-image:image-missing)",
+    });
+    render(
+      <TaskEditor
+        task={item}
+        allTasks={[item]}
+        busy={false}
+        onClose={vi.fn()}
+        onDelete={vi.fn(async () => undefined)}
+        onJump={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Preview" }));
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Lost image” is unavailable",
+    );
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("alert").at(-1)?.textContent).toContain(
+      "no saved image data",
     );
   });
 });

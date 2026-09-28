@@ -751,6 +751,14 @@ h1 {
 .markdown-preview > :last-child {
   margin-bottom: 0;
 }
+.missing-image {
+  color: #9f3745;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 6px;
+  margin: 0 0 12px;
+  padding: 9px 10px;
+}
 .markdown-preview h1,
 .markdown-preview h2,
 .markdown-preview h3 {

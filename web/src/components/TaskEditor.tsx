@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Eye, FilePenLine, ImagePlus, Trash2, X } from "lucide-react";
 import { priorities, Status, statuses, Task } from "../types";
 import {
+  findMissingImageReferences,
   hydrateImageReferences,
   imageReference,
   InlineImage,
@@ -87,6 +88,8 @@ export function TaskEditor({
     ),
     tags: parseTags(tagText),
   });
+  const missingImages = () =>
+    findMissingImageReferences(draftRef.current.description, imagesRef.current);
   const changed = () => JSON.stringify(currentTask()) !== original.current;
 
   useEffect(() => {
@@ -110,6 +113,13 @@ export function TaskEditor({
   closeRef.current = requestClose;
 
   const save = async () => {
+    const unavailableImages = missingImages();
+    if (unavailableImages.length > 0) {
+      setError(
+        "An image reference has no saved image data. Remove it and add the image again before saving.",
+      );
+      return;
+    }
     const next = {
       ...currentTask(),
       title: draft.title.trim(),
@@ -317,6 +327,10 @@ export function TaskEditor({
               ) : (
                 <MarkdownPreview
                   source={hydrateImageReferences(draft.description, images)}
+                  missingImages={findMissingImageReferences(
+                    draft.description,
+                    images,
+                  )}
                 />
               )}
             </Section>
