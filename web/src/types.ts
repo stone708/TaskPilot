@@ -9,9 +9,12 @@ export type Subtask = {
   done: boolean;
   position?: number;
 };
+export const commentColors = ["lilac", "blue", "mint", "amber", "rose"] as const;
+export type CommentColor = (typeof commentColors)[number];
 export type TaskComment = {
   id: string;
   body: string;
+  color: CommentColor;
   createdAt: string;
   updatedAt: string;
 };
@@ -51,5 +54,7 @@ export const normalizeTask = (task: Partial<Task>): Task => ({
   tags: Array.isArray(task.tags) ? task.tags : [],
   subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
   related: Array.isArray(task.related) ? task.related : [],
-  comments: Array.isArray(task.comments) ? task.comments : [],
+  comments: Array.isArray(task.comments)
+    ? task.comments.map((comment) => ({ ...comment, color: comment.color || "lilac" }))
+    : [],
 });

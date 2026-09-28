@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, FilePenLine, ImagePlus, Pencil, Send, Trash2, X } from "lucide-react";
-import { priorities, Status, statuses, Task, TaskComment } from "../types";
+import {
+  commentColors,
+  CommentColor,
+  priorities,
+  Status,
+  statuses,
+  Task,
+  TaskComment,
+} from "../types";
 import { taskApi } from "../api";
 import {
   findMissingImageReferences,
@@ -65,6 +73,7 @@ export function TaskEditor({
   const [error, setError] = useState("");
   const [comments, setComments] = useState(task.comments);
   const [commentText, setCommentText] = useState("");
+  const [commentColor, setCommentColor] = useState<CommentColor>("lilac");
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [commentBusy, setCommentBusy] = useState(false);
   const original = useRef(JSON.stringify(task));
@@ -163,8 +172,13 @@ export function TaskEditor({
     setError("");
     try {
       const comment = editingCommentId
-        ? await taskApi.updateComment(draft.id, editingCommentId, body)
-        : await taskApi.createComment(draft.id, body);
+        ? await taskApi.updateComment(
+            draft.id,
+            editingCommentId,
+            body,
+            commentColor,
+          )
+        : await taskApi.createComment(draft.id, body, commentColor);
       setComments((current) =>
         editingCommentId
           ? current.map((item) =>
@@ -173,6 +187,7 @@ export function TaskEditor({
           : [...current, comment],
       );
       setCommentText("");
+      setCommentColor("lilac");
       setEditingCommentId(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Comment save failed");
@@ -184,6 +199,7 @@ export function TaskEditor({
   const editComment = (comment: TaskComment) => {
     setEditingCommentId(comment.id);
     setCommentText(comment.body);
+    setCommentColor(comment.color);
     setError("");
   };
 
@@ -313,151 +329,178 @@ export function TaskEditor({
                 />
               </Field>
             </div>
-            <Section title="Description" className="description-section">
-              <div
-                className="description-tabs"
-                role="tablist"
-                aria-label="Description mode"
-              >
-                <button
-                  className={descriptionMode === "edit" ? "active" : ""}
-                  onClick={() => setDescriptionMode("edit")}
-                  role="tab"
-                  aria-selected={descriptionMode === "edit"}
+            <div className="task-main-grid">
+              <Section title="Description" className="description-section">
+                <div
+                  className="description-tabs"
+                  role="tablist"
+                  aria-label="Description mode"
                 >
-                  <FilePenLine size={14} /> Edit
-                </button>
-                <button
-                  className={descriptionMode === "preview" ? "active" : ""}
-                  onClick={() => setDescriptionMode("preview")}
-                  role="tab"
-                  aria-selected={descriptionMode === "preview"}
-                >
-                  <Eye size={14} /> Preview
-                </button>
-              </div>
-              {descriptionMode === "edit" ? (
-                <>
-                  <div className="description-tools">
-                    <button
-                      type="button"
-                      onClick={() => imageInputRef.current?.click()}
-                    >
-                      <ImagePlus size={14} /> Add image
-                    </button>
-                    <span>
-                      Images are stored with the task; Base64 stays hidden while
-                      editing.
-                    </span>
-                    <input
-                      ref={imageInputRef}
-                      type="file"
-                      accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
-                      aria-label="Add image to description"
-                      onChange={addImage}
-                    />
-                  </div>
-                  <textarea
-                    ref={descriptionRef}
-                    value={draft.description}
-                    onChange={(event) =>
-                      update("description", event.target.value)
-                    }
-                    placeholder="Use Markdown to add context…"
-                    aria-label="Description"
-                  />
-                </>
-              ) : (
-                <MarkdownPreview
-                  source={hydrateImageReferences(draft.description, images)}
-                  missingImages={findMissingImageReferences(
-                    draft.description,
-                    images,
-                  )}
-                />
-              )}
-            </Section>
-            <Section title="Comments" className="comments-section">
-              {!draft.id ? (
-                <p className="comments-note">Save this task before adding comments.</p>
-              ) : (
-                <>
-                  <div className="comment-list" aria-live="polite">
-                    {comments.length === 0 ? (
-                      <p className="comments-note">No comments yet.</p>
-                    ) : (
-                      comments.map((comment) => (
-                        <article className="comment" key={comment.id}>
-                          <div className="comment-meta">
-                            <time dateTime={comment.updatedAt}>
-                              {formatCommentDate(comment)}
-                            </time>
-                            {editingCommentId !== comment.id && (
-                              <button
-                                type="button"
-                                aria-label="Edit comment"
-                                disabled={commentBusy || busy}
-                                onClick={() => editComment(comment)}
-                              >
-                                <Pencil size={13} /> Edit
-                              </button>
-                            )}
-                          </div>
-                          {editingCommentId === comment.id ? (
-                            <p className="comment-editing">Editing this comment below.</p>
-                          ) : (
-                            <p>{comment.body}</p>
-                          )}
-                        </article>
-                      ))
-                    )}
-                  </div>
-                  <div className="comment-composer">
-                    <textarea
-                      value={commentText}
-                      onChange={(event) => setCommentText(event.target.value)}
-                      placeholder={
-                        editingCommentId
-                          ? "Edit comment…"
-                          : "Write a comment…"
-                      }
-                      aria-label="Comment"
-                      disabled={commentBusy || busy}
-                    />
-                    <div>
-                      {editingCommentId && (
-                        <button
-                          type="button"
-                          disabled={commentBusy || busy}
-                          onClick={() => {
-                            setEditingCommentId(null);
-                            setCommentText("");
-                          }}
-                        >
-                          Cancel edit
-                        </button>
-                      )}
+                  <button
+                    className={descriptionMode === "edit" ? "active" : ""}
+                    onClick={() => setDescriptionMode("edit")}
+                    role="tab"
+                    aria-selected={descriptionMode === "edit"}
+                  >
+                    <FilePenLine size={14} /> Edit
+                  </button>
+                  <button
+                    className={descriptionMode === "preview" ? "active" : ""}
+                    onClick={() => setDescriptionMode("preview")}
+                    role="tab"
+                    aria-selected={descriptionMode === "preview"}
+                  >
+                    <Eye size={14} /> Preview
+                  </button>
+                </div>
+                {descriptionMode === "edit" ? (
+                  <>
+                    <div className="description-tools">
                       <button
                         type="button"
-                        className="primary"
-                        disabled={commentBusy || busy}
-                        onClick={submitComment}
+                        onClick={() => imageInputRef.current?.click()}
                       >
-                        {editingCommentId ? (
-                          <>
-                            <Pencil size={14} /> Update comment
-                          </>
-                        ) : (
-                          <>
-                            <Send size={14} /> Add comment
-                          </>
-                        )}
+                        <ImagePlus size={14} /> Add image
                       </button>
+                      <span>
+                        Images are stored with the task; Base64 stays hidden while
+                        editing.
+                      </span>
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                        aria-label="Add image to description"
+                        onChange={addImage}
+                      />
                     </div>
-                  </div>
-                </>
-              )}
-            </Section>
+                    <textarea
+                      ref={descriptionRef}
+                      value={draft.description}
+                      onChange={(event) =>
+                        update("description", event.target.value)
+                      }
+                      placeholder="Use Markdown to add context…"
+                      aria-label="Description"
+                    />
+                  </>
+                ) : (
+                  <MarkdownPreview
+                    source={hydrateImageReferences(draft.description, images)}
+                    missingImages={findMissingImageReferences(
+                      draft.description,
+                      images,
+                    )}
+                  />
+                )}
+              </Section>
+              <Section title="Comments" className="comments-section">
+                {!draft.id ? (
+                  <p className="comments-note">Save this task before adding comments.</p>
+                ) : (
+                  <>
+                    <div className="comment-list" aria-live="polite">
+                      {comments.length === 0 ? (
+                        <p className="comments-note">No comments yet.</p>
+                      ) : (
+                        comments.map((comment) => (
+                          <article
+                            className={`comment comment-${comment.color}`}
+                            key={comment.id}
+                          >
+                            <div className="comment-meta">
+                              <time dateTime={comment.updatedAt}>
+                                {formatCommentDate(comment)}
+                              </time>
+                              {editingCommentId !== comment.id && (
+                                <button
+                                  type="button"
+                                  aria-label="Edit comment"
+                                  disabled={commentBusy || busy}
+                                  onClick={() => editComment(comment)}
+                                >
+                                  <Pencil size={13} /> Edit
+                                </button>
+                              )}
+                            </div>
+                            {editingCommentId === comment.id ? (
+                              <p className="comment-editing">
+                              Editing this comment below.
+                            </p>
+                            ) : (
+                              <p>{comment.body}</p>
+                            )}
+                          </article>
+                        ))
+                      )}
+                    </div>
+                    <div className="comment-composer">
+                      <textarea
+                        value={commentText}
+                        onChange={(event) => setCommentText(event.target.value)}
+                        placeholder={
+                          editingCommentId
+                            ? "Edit comment…"
+                            : "Write a comment…"
+                        }
+                        aria-label="Comment"
+                        disabled={commentBusy || busy}
+                      />
+                      <div className="comment-composer-actions">
+                        <div
+                          className="comment-color-picker"
+                          role="group"
+                          aria-label="Comment background color"
+                        >
+                          {commentColors.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              className={`comment-color ${color} ${
+                              commentColor === color ? "selected" : ""
+                            }`}
+                              aria-label={`Use ${color} comment background`}
+                              aria-pressed={commentColor === color}
+                              disabled={commentBusy || busy}
+                              onClick={() => setCommentColor(color)}
+                            />
+                          ))}
+                        </div>
+                        {editingCommentId && (
+                          <button
+                            type="button"
+                            disabled={commentBusy || busy}
+                            onClick={() => {
+                              setEditingCommentId(null);
+                              setCommentText("");
+                              setCommentColor("lilac");
+                            }}
+                          >
+                            Cancel edit
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={commentBusy || busy}
+                          onClick={submitComment}
+                        >
+                          {editingCommentId ? (
+                            <>
+                              <Pencil size={14} /> Update comment
+                            </>
+                          ) : (
+                            <>
+                              <Send size={14} /> Add comment
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </Section>
+            </div>
             <Section title="Related tasks">
               <select
                 value=""

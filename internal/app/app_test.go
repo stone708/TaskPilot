@@ -62,25 +62,28 @@ func TestCommentsPersistAndTrackEdits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	comment, err := s.CreateComment(ctx, task.ShortID, "First note")
+	comment, err := s.CreateComment(ctx, task.ShortID, "First note", "mint")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if comment.CreatedAt != comment.UpdatedAt {
+	if comment.Color != "mint" || comment.CreatedAt != comment.UpdatedAt {
 		t.Fatalf("new comment timestamps differ: %#v", comment)
 	}
-	edited, err := s.UpdateComment(ctx, task.ID, comment.ID, "Edited note")
+	edited, err := s.UpdateComment(ctx, task.ID, comment.ID, "Edited note", "rose")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edited.Body != "Edited note" || !edited.UpdatedAt.After(comment.UpdatedAt) {
+	if edited.Body != "Edited note" || edited.Color != "rose" || !edited.UpdatedAt.After(comment.UpdatedAt) {
 		t.Fatalf("comment edit did not update timestamp: before=%#v after=%#v", comment, edited)
 	}
 	task, err = s.Get(ctx, task.ID)
 	if err != nil || len(task.Comments) != 1 || task.Comments[0].Body != "Edited note" {
 		t.Fatalf("comments were not loaded: %#v, %v", task.Comments, err)
 	}
-	if _, err := s.UpdateComment(ctx, task.ID, "missing-comment", "Nope"); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := s.CreateComment(ctx, task.ID, "Invalid color", "neon"); err == nil || err.Error() != "invalid comment color" {
+		t.Fatalf("invalid comment color error = %v", err)
+	}
+	if _, err := s.UpdateComment(ctx, task.ID, "missing-comment", "Nope", "lilac"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("missing comment error = %v, want not found", err)
 	}
 }
@@ -113,11 +116,11 @@ func TestREST(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
-	commentRequest := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+created.ID+"/comments", bytes.NewBufferString(`{"body":"REST comment"}`))
+	commentRequest := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+created.ID+"/comments", bytes.NewBufferString(`{"body":"REST comment","color":"blue"}`))
 	commentRequest.Host = "127.0.0.1"
 	commentResponse := httptest.NewRecorder()
 	h.ServeHTTP(commentResponse, commentRequest)
-	if commentResponse.Code != http.StatusOK || !bytes.Contains(commentResponse.Body.Bytes(), []byte(`"body":"REST comment"`)) {
+	if commentResponse.Code != http.StatusOK || !bytes.Contains(commentResponse.Body.Bytes(), []byte(`"body":"REST comment"`)) || !bytes.Contains(commentResponse.Body.Bytes(), []byte(`"color":"blue"`)) {
 		t.Fatalf("create comment: %d %s", commentResponse.Code, commentResponse.Body.String())
 	}
 

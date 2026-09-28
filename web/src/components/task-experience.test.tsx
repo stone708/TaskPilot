@@ -175,12 +175,14 @@ describe("TaskEditor", () => {
     const createdComment = {
       id: "comment-1",
       body: "First comment",
+      color: "mint" as const,
       createdAt: "2026-09-28T00:00:00Z",
       updatedAt: "2026-09-28T00:00:00Z",
     };
     const updatedComment = {
       ...createdComment,
       body: "Edited comment",
+      color: "rose" as const,
       updatedAt: "2026-09-28T00:01:00Z",
     };
     const fetchMock = vi
@@ -195,7 +197,7 @@ describe("TaskEditor", () => {
       });
     vi.stubGlobal("fetch", fetchMock);
     const item = task({ id: "task-comments" });
-    render(
+    const { container } = render(
       <TaskEditor
         task={item}
         allTasks={[item]}
@@ -207,24 +209,42 @@ describe("TaskEditor", () => {
       />,
     );
 
-    await user.type(screen.getByRole("textbox", { name: "Comment" }), "First comment");
+    expect(container.querySelector(".task-main-grid")).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "Use mint comment background" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Comment" }),
+      "First comment",
+    );
     await user.click(screen.getByRole("button", { name: "Add comment" }));
     expect(await screen.findByText("First comment")).toBeTruthy();
+    expect(container.querySelector(".comment-mint")).toBeTruthy();
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/v1/tasks/task-comments/comments",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ body: "First comment", color: "mint" }),
+      }),
     );
 
     await user.click(screen.getByRole("button", { name: "Edit comment" }));
     const commentInput = screen.getByRole("textbox", { name: "Comment" });
     await user.clear(commentInput);
     await user.type(commentInput, "Edited comment");
+    await user.click(
+      screen.getByRole("button", { name: "Use rose comment background" }),
+    );
     await user.click(screen.getByRole("button", { name: "Update comment" }));
     expect(await screen.findByText("Edited comment")).toBeTruthy();
     expect(screen.getByText(/Edited Sep/)).toBeTruthy();
+    expect(container.querySelector(".comment-rose")).toBeTruthy();
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/v1/tasks/task-comments/comments/comment-1",
-      expect.objectContaining({ method: "PATCH" }),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ body: "Edited comment", color: "rose" }),
+      }),
     );
   });
 

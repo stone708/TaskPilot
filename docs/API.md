@@ -25,7 +25,7 @@
   "tags": ["release"],
   "subtasks": [{"id":"…","title":"Collect changes","done":false,"position":0}],
   "related": ["another-task-uuid"],
-  "comments": [{"id":"…","body":"Checked with the team.","createdAt":"2026-09-21T07:00:00Z","updatedAt":"2026-09-21T07:00:00Z"}],
+  "comments": [{"id":"…","body":"Checked with the team.","color":"lilac","createdAt":"2026-09-21T07:00:00Z","updatedAt":"2026-09-21T07:00:00Z"}],
   "createdAt": "2026-09-21T07:00:00Z",
   "updatedAt": "2026-09-21T07:00:00Z",
   "completedAt": null,
@@ -87,22 +87,22 @@ curl -X PATCH http://127.0.0.1:8080/api/v1/tasks/TASK-101 \
 
 ### `POST /tasks/{id}/comments`
 
-直接添加评论。评论独立保存，不需要提交任务的 `version`。
+直接添加评论。评论独立保存，不需要提交任务的 `version`。`color` 只能是 `lilac`、`blue`、`mint`、`amber` 或 `rose`，缺省为 `lilac`。
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/tasks/TASK-101/comments \
   -H 'Content-Type: application/json' \
-  -d '{"body":"Ready for review."}'
+  -d '{"body":"Ready for review.","color":"mint"}'
 ```
 
 ### `PATCH /tasks/{id}/comments/{commentId}`
 
-修改评论正文；服务会保留 `createdAt` 并更新评论的 `updatedAt`。
+修改评论正文或背景颜色；服务会保留 `createdAt` 并更新评论的 `updatedAt`。
 
 ```bash
 curl -X PATCH http://127.0.0.1:8080/api/v1/tasks/TASK-101/comments/COMMENT_UUID \
   -H 'Content-Type: application/json' \
-  -d '{"body":"Updated after review."}'
+  -d '{"body":"Updated after review.","color":"rose"}'
 ```
 
 ## 标签

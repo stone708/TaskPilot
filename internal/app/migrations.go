@@ -20,6 +20,7 @@ var databaseMigrations = []migration{
 	{version: 1, apply: createInitialSchema},
 	{version: 2, apply: addTaskQueryIndex},
 	{version: 3, apply: addComments},
+	{version: 4, apply: addCommentColors},
 }
 
 func createInitialSchema(ctx context.Context, tx *sql.Tx) error {
@@ -59,6 +60,11 @@ func addComments(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+func addCommentColors(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `ALTER TABLE comments ADD COLUMN color TEXT NOT NULL DEFAULT 'lilac'`)
+	return err
 }
 
 func latestSchemaVersion(migrations []migration) int {

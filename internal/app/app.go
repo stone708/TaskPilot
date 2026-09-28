@@ -50,6 +50,7 @@ type Subtask struct {
 type Comment struct {
 	ID        string    `json:"id"`
 	Body      string    `json:"body"`
+	Color     string    `json:"color"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -62,6 +63,7 @@ type Store struct {
 
 var statuses = map[string]bool{"Todo": true, "Doing": true, "Holding": true, "Done": true}
 var priorities = map[string]bool{"None": true, "Low": true, "Medium": true, "High": true, "Urgent": true}
+var commentColors = map[string]bool{"lilac": true, "blue": true, "mint": true, "amber": true, "rose": true}
 
 func DataPath(override string) (string, error) {
 	if override != "" {
@@ -308,14 +310,14 @@ func (s *Store) loadChildren(ctx context.Context, t Task) (Task, error) {
 		t.Related = append(t.Related, x)
 	}
 	rs.Close()
-	rs, e = s.db.QueryContext(ctx, "SELECT id,body,created_at,updated_at FROM comments WHERE task_id=? ORDER BY created_at", t.ID)
+	rs, e = s.db.QueryContext(ctx, "SELECT id,body,color,created_at,updated_at FROM comments WHERE task_id=? ORDER BY created_at", t.ID)
 	if e != nil {
 		return t, e
 	}
 	for rs.Next() {
 		var x Comment
 		var createdAt, updatedAt string
-		if e := rs.Scan(&x.ID, &x.Body, &createdAt, &updatedAt); e != nil {
+		if e := rs.Scan(&x.ID, &x.Body, &x.Color, &createdAt, &updatedAt); e != nil {
 			rs.Close()
 			return t, e
 		}
@@ -460,7 +462,17 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	_, e = s.db.ExecContext(ctx, "DELETE FROM tasks WHERE id=?", t.ID)
 	return e
 }
-func (s *Store) CreateComment(ctx context.Context, taskKey, body string) (Comment, error) {
+func validCommentColor(color string) (string, error) {
+	if color == "" {
+		return "lilac", nil
+	}
+	if !commentColors[color] {
+		return "", errors.New("invalid comment color")
+	}
+	return color, nil
+}
+
+func (s *Store) CreateComment(ctx context.Context, taskKey, body, color string) (Comment, error) {
 	var taskID string
 	if err := s.db.QueryRowContext(ctx, "SELECT id FROM tasks WHERE id=? OR short_id=?", taskKey, taskKey).Scan(&taskID); err != nil {
 		return Comment{}, err
@@ -472,13 +484,17 @@ func (s *Store) CreateComment(ctx context.Context, taskKey, body string) (Commen
 	if len(body) > 10000 {
 		return Comment{}, errors.New("comment is too long")
 	}
+	color, err := validCommentColor(color)
+	if err != nil {
+		return Comment{}, err
+	}
 	now := s.now()
-	comment := Comment{ID: uuid.NewString(), Body: body, CreatedAt: now, UpdatedAt: now}
-	_, err := s.db.ExecContext(ctx, "INSERT INTO comments(id,task_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", comment.ID, taskID, comment.Body, comment.CreatedAt.Format(time.RFC3339Nano), comment.UpdatedAt.Format(time.RFC3339Nano))
+	comment := Comment{ID: uuid.NewString(), Body: body, Color: color, CreatedAt: now, UpdatedAt: now}
+	_, err = s.db.ExecContext(ctx, "INSERT INTO comments(id,task_id,body,color,created_at,updated_at) VALUES(?,?,?,?,?,?)", comment.ID, taskID, comment.Body, comment.Color, comment.CreatedAt.Format(time.RFC3339Nano), comment.UpdatedAt.Format(time.RFC3339Nano))
 	return comment, err
 }
 
-func (s *Store) UpdateComment(ctx context.Context, taskKey, commentID, body string) (Comment, error) {
+func (s *Store) UpdateComment(ctx context.Context, taskKey, commentID, body, color string) (Comment, error) {
 	var taskID string
 	if err := s.db.QueryRowContext(ctx, "SELECT id FROM tasks WHERE id=? OR short_id=?", taskKey, taskKey).Scan(&taskID); err != nil {
 		return Comment{}, err
@@ -490,8 +506,12 @@ func (s *Store) UpdateComment(ctx context.Context, taskKey, commentID, body stri
 	if len(body) > 10000 {
 		return Comment{}, errors.New("comment is too long")
 	}
+	color, err := validCommentColor(color)
+	if err != nil {
+		return Comment{}, err
+	}
 	now := s.now()
-	result, err := s.db.ExecContext(ctx, "UPDATE comments SET body=?,updated_at=? WHERE id=? AND task_id=?", body, now.Format(time.RFC3339Nano), commentID, taskID)
+	result, err := s.db.ExecContext(ctx, "UPDATE comments SET body=?,color=?,updated_at=? WHERE id=? AND task_id=?", body, color, now.Format(time.RFC3339Nano), commentID, taskID)
 	if err != nil {
 		return Comment{}, err
 	}
@@ -505,7 +525,7 @@ func (s *Store) UpdateComment(ctx context.Context, taskKey, commentID, body stri
 		return Comment{}, err
 	}
 	created, _ := time.Parse(time.RFC3339Nano, createdAt)
-	return Comment{ID: commentID, Body: body, CreatedAt: created, UpdatedAt: now}, nil
+	return Comment{ID: commentID, Body: body, Color: color, CreatedAt: created, UpdatedAt: now}, nil
 }
 
 func (s *Store) Tags(ctx context.Context) ([]string, error) {
@@ -575,24 +595,26 @@ func Server(s *Store) http.Handler {
 		if len(parts) >= 2 && parts[1] == "comments" {
 			if len(parts) == 2 && r.Method == http.MethodPost {
 				var input struct {
-					Body string `json:"body"`
+					Body  string `json:"body"`
+					Color string `json:"color"`
 				}
 				err := json.NewDecoder(r.Body).Decode(&input)
 				var comment Comment
 				if err == nil {
-					comment, err = s.CreateComment(r.Context(), parts[0], input.Body)
+					comment, err = s.CreateComment(r.Context(), parts[0], input.Body, input.Color)
 				}
 				respond(w, err, comment)
 				return
 			}
 			if len(parts) == 3 && r.Method == http.MethodPatch {
 				var input struct {
-					Body string `json:"body"`
+					Body  string `json:"body"`
+					Color string `json:"color"`
 				}
 				err := json.NewDecoder(r.Body).Decode(&input)
 				var comment Comment
 				if err == nil {
-					comment, err = s.UpdateComment(r.Context(), parts[0], parts[2], input.Body)
+					comment, err = s.UpdateComment(r.Context(), parts[0], parts[2], input.Body, input.Color)
 				}
 				respond(w, err, comment)
 				return
