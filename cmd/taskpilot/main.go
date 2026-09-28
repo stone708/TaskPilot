@@ -33,6 +33,9 @@ func serve(data *string) *cobra.Command {
 			return e
 		}
 		defer s.Close()
+		if backupPath := s.BackupPath(); backupPath != "" {
+			fmt.Printf("TaskPilot created a pre-migration backup at %s\n", backupPath)
+		}
 		fmt.Printf("TaskPilot running at http://%s\n", listen)
 		return http.ListenAndServe(listen, app.Server(s))
 	}}

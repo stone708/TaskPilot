@@ -46,8 +46,10 @@ type Subtask struct {
 	Position int    `json:"position"`
 }
 type Store struct {
-	db  *sql.DB
-	loc *time.Location
+	db         *sql.DB
+	loc        *time.Location
+	path       string
+	backupPath string
 }
 
 var statuses = map[string]bool{"Todo": true, "Doing": true, "Holding": true, "Done": true}
@@ -63,23 +65,59 @@ func DataPath(override string) (string, error) {
 	}
 	return filepath.Join(d, "TaskPilot", "taskpilot.db"), nil
 }
+
 func Open(path string) (*Store, error) {
-	if e := os.MkdirAll(filepath.Dir(path), 0755); e != nil {
-		return nil, e
+	info, err := os.Stat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
-	db, e := sql.Open("sqlite", path)
-	if e != nil {
-		return nil, e
+	existingDatabase := err == nil && info.Size() > 0
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, err
 	}
-	s := &Store{db: db, loc: time.Local}
-	_, e = db.Exec(`PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,short_id TEXT UNIQUE NOT NULL,title TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',status TEXT NOT NULL,priority TEXT NOT NULL DEFAULT 'None',start_at TEXT,due_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT,version INTEGER NOT NULL DEFAULT 1); CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY,name TEXT UNIQUE COLLATE NOCASE NOT NULL); CREATE TABLE IF NOT EXISTS task_tags(task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,PRIMARY KEY(task_id,tag_id)); CREATE TABLE IF NOT EXISTS subtasks(id TEXT PRIMARY KEY,task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,title TEXT NOT NULL,done INTEGER NOT NULL DEFAULT 0,position INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS task_relations(a TEXT REFERENCES tasks(id) ON DELETE CASCADE,b TEXT REFERENCES tasks(id) ON DELETE CASCADE,PRIMARY KEY(a,b),CHECK(a<b)); INSERT OR IGNORE INTO schema_migrations VALUES(1,datetime('now')); INSERT OR IGNORE INTO meta VALUES('next_short_id','101'); INSERT OR IGNORE INTO meta VALUES('timezone','` + time.Local.String() + `');`)
-	if e != nil {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000`); err != nil {
 		db.Close()
-		return nil, e
+		return nil, err
 	}
-	return s, nil
+
+	ctx := context.Background()
+	_, applied, currentVersion, err := migrationState(ctx, db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	latestVersion := latestSchemaVersion(databaseMigrations)
+	if currentVersion > latestVersion {
+		db.Close()
+		return nil, fmt.Errorf("database schema version %d is newer than this TaskPilot build (supports %d)", currentVersion, latestVersion)
+	}
+	pending := pendingMigrations(databaseMigrations, applied)
+	backupPath := ""
+	if existingDatabase && len(pending) > 0 {
+		backupPath, err = createMigrationBackup(ctx, db, path, currentVersion, latestVersion)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if _, err := applyMigrations(ctx, db, databaseMigrations); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, loc: time.Local, path: path, backupPath: backupPath}, nil
 }
-func (s *Store) Close() error   { return s.db.Close() }
+
+func (s *Store) Close() error { return s.db.Close() }
+
+// BackupPath is the consistent pre-migration snapshot created when this process upgraded the database.
+func (s *Store) BackupPath() string { return s.backupPath }
+
+func (s *Store) DatabasePath() string { return s.path }
+
 func (s *Store) now() time.Time { return time.Now().UTC() }
 func validDate(v *string) error {
 	if v == nil {

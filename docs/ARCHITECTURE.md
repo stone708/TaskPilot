@@ -20,9 +20,10 @@ flowchart LR
 
 | 文件 | 职责 |
 | --- | --- |
-| `app.go` | SQLite 初始化、任务/标签读写、事务、REST 路由、本地访问限制与内嵌静态资源。 |
+| `app.go` | 任务/标签读写、事务、REST 路由、本地访问限制与内嵌静态资源。 |
+| `migrations.go` | 有序数据库迁移、升级前一致性备份与版本兼容性检查。 |
 | `mcp.go` | 官方 Go MCP SDK 的无状态 Streamable HTTP 服务与十个工具定义。 |
-| `app_test.go` | 任务规则、REST 与 MCP SDK 端到端回归测试。 |
+| `app_test.go`、`migrations_test.go` | 任务规则、REST、MCP 与升级迁移回归测试。 |
 
 `web/src/` 包含 React 入口、API 客户端、类型和样式。`npm run build` 将产物写入 `internal/app/static/`；Go 使用 `embed.FS` 将其编译进最终二进制。
 
@@ -33,7 +34,9 @@ flowchart LR
 - 任务、标签、子任务和关联关系在一个 SQLite 事务内写入。
 - `task_relations` 保存规范化后的 UUID 对，因此查询时可以得到双向关联。
 - `version` 每次任务更新递增；REST/MCP 的调用方可据此发现并发编辑冲突。
-- `schema_migrations` 记录数据库 schema 版本。启动会初始化缺失表与元数据，现有数据库不会被重置。
+- `schema_migrations` 记录已提交的有序 schema 版本。每个迁移在独立事务中执行，版本记录只会随迁移一起提交；失败会回滚该迁移。
+- 已有数据库发现待迁移版本时，启动会先使用 SQLite `VACUUM INTO` 在数据库同级的 `backups/` 目录创建一致性快照。新建空数据库和无待迁移的启动不会创建备份。
+- 程序拒绝打开比自身支持版本更高的数据库，避免旧二进制在降级时写入未知结构。
 
 ## 本地安全边界
 
