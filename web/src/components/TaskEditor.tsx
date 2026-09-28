@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Eye, FilePenLine, ImagePlus, Trash2, X } from "lucide-react";
-import { priorities, Status, statuses, Task } from "../types";
+import { Eye, FilePenLine, ImagePlus, Pencil, Send, Trash2, X } from "lucide-react";
+import { priorities, Status, statuses, Task, TaskComment } from "../types";
+import { taskApi } from "../api";
 import {
   findMissingImageReferences,
   hydrateImageReferences,
@@ -62,6 +63,10 @@ export function TaskEditor({
     "edit",
   );
   const [error, setError] = useState("");
+  const [comments, setComments] = useState(task.comments);
+  const [commentText, setCommentText] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [commentBusy, setCommentBusy] = useState(false);
   const original = useRef(JSON.stringify(task));
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -142,6 +147,44 @@ export function TaskEditor({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Delete failed");
     }
+  };
+
+  const submitComment = async () => {
+    if (!draft.id) {
+      setError("Save the task before adding a comment.");
+      return;
+    }
+    const body = commentText.trim();
+    if (!body) {
+      setError("Comment body is required.");
+      return;
+    }
+    setCommentBusy(true);
+    setError("");
+    try {
+      const comment = editingCommentId
+        ? await taskApi.updateComment(draft.id, editingCommentId, body)
+        : await taskApi.createComment(draft.id, body);
+      setComments((current) =>
+        editingCommentId
+          ? current.map((item) =>
+              item.id === comment.id ? comment : item,
+            )
+          : [...current, comment],
+      );
+      setCommentText("");
+      setEditingCommentId(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Comment save failed");
+    } finally {
+      setCommentBusy(false);
+    }
+  };
+
+  const editComment = (comment: TaskComment) => {
+    setEditingCommentId(comment.id);
+    setCommentText(comment.body);
+    setError("");
   };
 
   const jump = (id: string) => {
@@ -270,7 +313,7 @@ export function TaskEditor({
                 />
               </Field>
             </div>
-            <Section title="Description">
+            <Section title="Description" className="description-section">
               <div
                 className="description-tabs"
                 role="tablist"
@@ -332,6 +375,87 @@ export function TaskEditor({
                     images,
                   )}
                 />
+              )}
+            </Section>
+            <Section title="Comments" className="comments-section">
+              {!draft.id ? (
+                <p className="comments-note">Save this task before adding comments.</p>
+              ) : (
+                <>
+                  <div className="comment-list" aria-live="polite">
+                    {comments.length === 0 ? (
+                      <p className="comments-note">No comments yet.</p>
+                    ) : (
+                      comments.map((comment) => (
+                        <article className="comment" key={comment.id}>
+                          <div className="comment-meta">
+                            <time dateTime={comment.updatedAt}>
+                              {formatCommentDate(comment)}
+                            </time>
+                            {editingCommentId !== comment.id && (
+                              <button
+                                type="button"
+                                aria-label="Edit comment"
+                                disabled={commentBusy || busy}
+                                onClick={() => editComment(comment)}
+                              >
+                                <Pencil size={13} /> Edit
+                              </button>
+                            )}
+                          </div>
+                          {editingCommentId === comment.id ? (
+                            <p className="comment-editing">Editing this comment below.</p>
+                          ) : (
+                            <p>{comment.body}</p>
+                          )}
+                        </article>
+                      ))
+                    )}
+                  </div>
+                  <div className="comment-composer">
+                    <textarea
+                      value={commentText}
+                      onChange={(event) => setCommentText(event.target.value)}
+                      placeholder={
+                        editingCommentId
+                          ? "Edit comment…"
+                          : "Write a comment…"
+                      }
+                      aria-label="Comment"
+                      disabled={commentBusy || busy}
+                    />
+                    <div>
+                      {editingCommentId && (
+                        <button
+                          type="button"
+                          disabled={commentBusy || busy}
+                          onClick={() => {
+                            setEditingCommentId(null);
+                            setCommentText("");
+                          }}
+                        >
+                          Cancel edit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={commentBusy || busy}
+                        onClick={submitComment}
+                      >
+                        {editingCommentId ? (
+                          <>
+                            <Pencil size={14} /> Update comment
+                          </>
+                        ) : (
+                          <>
+                            <Send size={14} /> Add comment
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
             </Section>
             <Section title="Related tasks">
@@ -456,6 +580,17 @@ export function TaskEditor({
   );
 }
 
+function formatCommentDate(comment: TaskComment) {
+  const date = new Date(comment.updatedAt);
+  const formatted = Number.isNaN(date.getTime())
+    ? comment.updatedAt
+    : new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(date);
+  return comment.updatedAt !== comment.createdAt ? `Edited ${formatted}` : formatted;
+}
+
 function Field({
   label,
   children,
@@ -473,13 +608,15 @@ function Field({
 
 function Section({
   title,
+  className = "",
   children,
 }: {
   title: string;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="editor-section">
+    <section className={`editor-section ${className}`}>
       <h3>{title}</h3>
       {children}
     </section>

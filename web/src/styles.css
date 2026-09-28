@@ -619,7 +619,7 @@ h1 {
   padding: 28px 32px 42px;
 }
 .workspace-content {
-  width: min(1120px, 100%);
+  width: min(1280px, 100%);
   margin: 0 auto;
 }
 .title-input {
@@ -683,6 +683,16 @@ h1 {
   font-size: 13px;
   line-height: 1.5;
 }
+.description-section textarea {
+  min-height: min(44vh, 460px);
+  padding: 14px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.description-section .markdown-preview {
+  min-height: min(44vh, 460px);
+}
+
 .description-tabs {
   display: flex;
   gap: 2px;
@@ -823,6 +833,71 @@ h1 {
   margin: 0;
   color: #929aa6;
 }
+.comments-section {
+  margin-top: 28px;
+}
+.comment-list {
+  display: grid;
+  gap: 9px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+.comment,
+.comment-composer {
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  background: #fff;
+}
+.comment {
+  padding: 11px 12px;
+}
+.comment-meta,
+.comment-composer > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.comment-meta time,
+.comments-note,
+.comment-editing {
+  color: #828b98;
+  font-size: 11px;
+}
+.comment-meta button,
+.comment-composer > div > button:not(.primary) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  color: #525bb5;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 650;
+}
+.comment > p {
+  margin: 7px 0 0;
+  color: #343a45;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.comment-editing {
+  font-style: italic;
+}
+.comment-composer {
+  margin-top: 10px;
+  padding: 10px;
+}
+.comment-composer textarea {
+  min-height: 78px;
+  margin: 0 0 9px;
+}
+.comment-composer > div {
+  justify-content: flex-end;
+}
+
 .related {
   display: flex;
   gap: 10px;

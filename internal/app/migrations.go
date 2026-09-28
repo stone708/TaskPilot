@@ -19,6 +19,7 @@ type migration struct {
 var databaseMigrations = []migration{
 	{version: 1, apply: createInitialSchema},
 	{version: 2, apply: addTaskQueryIndex},
+	{version: 3, apply: addComments},
 }
 
 func createInitialSchema(ctx context.Context, tx *sql.Tx) error {
@@ -45,6 +46,19 @@ func createInitialSchema(ctx context.Context, tx *sql.Tx) error {
 func addTaskQueryIndex(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_tasks_status_due_at ON tasks(status, due_at)`)
 	return err
+}
+
+func addComments(ctx context.Context, tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE comments(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,body TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)`,
+		`CREATE INDEX idx_comments_task_created_at ON comments(task_id, created_at)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func latestSchemaVersion(migrations []migration) int {

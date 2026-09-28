@@ -34,6 +34,7 @@ type Task struct {
 	Tags        []string   `json:"tags"`
 	Subtasks    []Subtask  `json:"subtasks"`
 	Related     []string   `json:"related"`
+	Comments    []Comment  `json:"comments"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	CompletedAt *time.Time `json:"completedAt"`
@@ -44,6 +45,13 @@ type Subtask struct {
 	Title    string `json:"title"`
 	Done     bool   `json:"done"`
 	Position int    `json:"position"`
+}
+
+type Comment struct {
+	ID        string    `json:"id"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 type Store struct {
 	db         *sql.DB
@@ -248,7 +256,7 @@ func (s *Store) query(ctx context.Context, where string, args ...any) (*sql.Rows
 	return s.db.QueryContext(ctx, `SELECT t.id,t.short_id,t.title,t.description,t.status,t.priority,t.start_at,t.due_at,t.created_at,t.updated_at,t.completed_at,t.version FROM tasks t `+where+` ORDER BY CASE t.priority WHEN 'Urgent' THEN 5 WHEN 'High' THEN 4 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 2 ELSE 1 END DESC, COALESCE(t.due_at,'9999-12-31'),t.created_at DESC`, args...)
 }
 func scan(r *sql.Rows) (Task, error) {
-	t := Task{Tags: make([]string, 0), Subtasks: make([]Subtask, 0), Related: make([]string, 0)}
+	t := Task{Tags: make([]string, 0), Subtasks: make([]Subtask, 0), Related: make([]string, 0), Comments: make([]Comment, 0)}
 	var st, du, co sql.NullString
 	var cr, up string
 	e := r.Scan(&t.ID, &t.ShortID, &t.Title, &t.Description, &t.Status, &t.Priority, &st, &du, &cr, &up, &co, &t.Version)
@@ -298,6 +306,26 @@ func (s *Store) loadChildren(ctx context.Context, t Task) (Task, error) {
 		var x string
 		rs.Scan(&x)
 		t.Related = append(t.Related, x)
+	}
+	rs.Close()
+	rs, e = s.db.QueryContext(ctx, "SELECT id,body,created_at,updated_at FROM comments WHERE task_id=? ORDER BY created_at", t.ID)
+	if e != nil {
+		return t, e
+	}
+	for rs.Next() {
+		var x Comment
+		var createdAt, updatedAt string
+		if e := rs.Scan(&x.ID, &x.Body, &createdAt, &updatedAt); e != nil {
+			rs.Close()
+			return t, e
+		}
+		x.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+		x.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+		t.Comments = append(t.Comments, x)
+	}
+	if e := rs.Err(); e != nil {
+		rs.Close()
+		return t, e
 	}
 	rs.Close()
 	return t, nil
@@ -432,6 +460,54 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	_, e = s.db.ExecContext(ctx, "DELETE FROM tasks WHERE id=?", t.ID)
 	return e
 }
+func (s *Store) CreateComment(ctx context.Context, taskKey, body string) (Comment, error) {
+	var taskID string
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM tasks WHERE id=? OR short_id=?", taskKey, taskKey).Scan(&taskID); err != nil {
+		return Comment{}, err
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Comment{}, errors.New("comment body is required")
+	}
+	if len(body) > 10000 {
+		return Comment{}, errors.New("comment is too long")
+	}
+	now := s.now()
+	comment := Comment{ID: uuid.NewString(), Body: body, CreatedAt: now, UpdatedAt: now}
+	_, err := s.db.ExecContext(ctx, "INSERT INTO comments(id,task_id,body,created_at,updated_at) VALUES(?,?,?,?,?)", comment.ID, taskID, comment.Body, comment.CreatedAt.Format(time.RFC3339Nano), comment.UpdatedAt.Format(time.RFC3339Nano))
+	return comment, err
+}
+
+func (s *Store) UpdateComment(ctx context.Context, taskKey, commentID, body string) (Comment, error) {
+	var taskID string
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM tasks WHERE id=? OR short_id=?", taskKey, taskKey).Scan(&taskID); err != nil {
+		return Comment{}, err
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Comment{}, errors.New("comment body is required")
+	}
+	if len(body) > 10000 {
+		return Comment{}, errors.New("comment is too long")
+	}
+	now := s.now()
+	result, err := s.db.ExecContext(ctx, "UPDATE comments SET body=?,updated_at=? WHERE id=? AND task_id=?", body, now.Format(time.RFC3339Nano), commentID, taskID)
+	if err != nil {
+		return Comment{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil {
+		return Comment{}, err
+	} else if changed == 0 {
+		return Comment{}, sql.ErrNoRows
+	}
+	var createdAt string
+	if err := s.db.QueryRowContext(ctx, "SELECT created_at FROM comments WHERE id=?", commentID).Scan(&createdAt); err != nil {
+		return Comment{}, err
+	}
+	created, _ := time.Parse(time.RFC3339Nano, createdAt)
+	return Comment{ID: commentID, Body: body, CreatedAt: created, UpdatedAt: now}, nil
+}
+
 func (s *Store) Tags(ctx context.Context) ([]string, error) {
 	rs, e := s.db.QueryContext(ctx, "SELECT name FROM tags ORDER BY name")
 	if e != nil {
@@ -495,7 +571,40 @@ func Server(s *Store) http.Handler {
 		http.Error(w, "method not allowed", 405)
 	})
 	mux.HandleFunc("/api/v1/tasks/", func(w http.ResponseWriter, r *http.Request) {
-		key := strings.TrimPrefix(r.URL.Path, "/api/v1/tasks/")
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/tasks/"), "/"), "/")
+		if len(parts) >= 2 && parts[1] == "comments" {
+			if len(parts) == 2 && r.Method == http.MethodPost {
+				var input struct {
+					Body string `json:"body"`
+				}
+				err := json.NewDecoder(r.Body).Decode(&input)
+				var comment Comment
+				if err == nil {
+					comment, err = s.CreateComment(r.Context(), parts[0], input.Body)
+				}
+				respond(w, err, comment)
+				return
+			}
+			if len(parts) == 3 && r.Method == http.MethodPatch {
+				var input struct {
+					Body string `json:"body"`
+				}
+				err := json.NewDecoder(r.Body).Decode(&input)
+				var comment Comment
+				if err == nil {
+					comment, err = s.UpdateComment(r.Context(), parts[0], parts[2], input.Body)
+				}
+				respond(w, err, comment)
+				return
+			}
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if len(parts) != 1 || parts[0] == "" {
+			http.NotFound(w, r)
+			return
+		}
+		key := parts[0]
 		if r.Method == "GET" {
 			t, e := s.Get(r.Context(), key)
 			respond(w, e, t)

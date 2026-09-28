@@ -9,6 +9,12 @@ export type Subtask = {
   done: boolean;
   position?: number;
 };
+export type TaskComment = {
+  id: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+};
 export type Task = {
   id: string;
   shortId: string;
@@ -21,6 +27,7 @@ export type Task = {
   tags: string[];
   subtasks: Subtask[];
   related: string[];
+  comments: TaskComment[];
   version: number;
 };
 export const emptyTask = (): Task => ({
@@ -35,6 +42,7 @@ export const emptyTask = (): Task => ({
   tags: [],
   subtasks: [],
   related: [],
+  comments: [],
   version: 0,
 });
 export const normalizeTask = (task: Partial<Task>): Task => ({
@@ -43,4 +51,5 @@ export const normalizeTask = (task: Partial<Task>): Task => ({
   tags: Array.isArray(task.tags) ? task.tags : [],
   subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
   related: Array.isArray(task.related) ? task.related : [],
+  comments: Array.isArray(task.comments) ? task.comments : [],
 });

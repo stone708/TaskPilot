@@ -170,6 +170,64 @@ describe("TaskEditor", () => {
       ),
     );
   });
+  it("adds and edits a dated comment without saving the task draft", async () => {
+    const user = userEvent.setup();
+    const createdComment = {
+      id: "comment-1",
+      body: "First comment",
+      createdAt: "2026-09-28T00:00:00Z",
+      updatedAt: "2026-09-28T00:00:00Z",
+    };
+    const updatedComment = {
+      ...createdComment,
+      body: "Edited comment",
+      updatedAt: "2026-09-28T00:01:00Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => createdComment,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => updatedComment,
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const item = task({ id: "task-comments" });
+    render(
+      <TaskEditor
+        task={item}
+        allTasks={[item]}
+        busy={false}
+        onClose={vi.fn()}
+        onDelete={vi.fn(async () => undefined)}
+        onJump={vi.fn()}
+        onSave={vi.fn(async () => undefined)}
+      />,
+    );
+
+    await user.type(screen.getByRole("textbox", { name: "Comment" }), "First comment");
+    await user.click(screen.getByRole("button", { name: "Add comment" }));
+    expect(await screen.findByText("First comment")).toBeTruthy();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/v1/tasks/task-comments/comments",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit comment" }));
+    const commentInput = screen.getByRole("textbox", { name: "Comment" });
+    await user.clear(commentInput);
+    await user.type(commentInput, "Edited comment");
+    await user.click(screen.getByRole("button", { name: "Update comment" }));
+    expect(await screen.findByText("Edited comment")).toBeTruthy();
+    expect(screen.getByText(/Edited Sep/)).toBeTruthy();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/v1/tasks/task-comments/comments/comment-1",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
   it("explains missing images in Preview and blocks saving their broken reference", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async () => undefined);

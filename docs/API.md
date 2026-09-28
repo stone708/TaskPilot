@@ -25,6 +25,7 @@
   "tags": ["release"],
   "subtasks": [{"id":"…","title":"Collect changes","done":false,"position":0}],
   "related": ["another-task-uuid"],
+  "comments": [{"id":"…","body":"Checked with the team.","createdAt":"2026-09-21T07:00:00Z","updatedAt":"2026-09-21T07:00:00Z"}],
   "createdAt": "2026-09-21T07:00:00Z",
   "updatedAt": "2026-09-21T07:00:00Z",
   "completedAt": null,
@@ -82,7 +83,27 @@ curl -X PATCH http://127.0.0.1:8080/api/v1/tasks/TASK-101 \
 
 ### `DELETE /tasks/{id}`
 
-删除任务，并自动清理双向关联。
+删除任务，并自动清理双向关联和评论。
+
+### `POST /tasks/{id}/comments`
+
+直接添加评论。评论独立保存，不需要提交任务的 `version`。
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/tasks/TASK-101/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"body":"Ready for review."}'
+```
+
+### `PATCH /tasks/{id}/comments/{commentId}`
+
+修改评论正文；服务会保留 `createdAt` 并更新评论的 `updatedAt`。
+
+```bash
+curl -X PATCH http://127.0.0.1:8080/api/v1/tasks/TASK-101/comments/COMMENT_UUID \
+  -H 'Content-Type: application/json' \
+  -d '{"body":"Updated after review."}'
+```
 
 ## 标签
 

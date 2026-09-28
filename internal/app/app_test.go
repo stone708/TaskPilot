@@ -3,7 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -53,6 +55,36 @@ func TestTaskLifecycleAndRelations(t *testing.T) {
 		t.Fatalf("relation cleanup failed: %#v %v", a, e)
 	}
 }
+func TestCommentsPersistAndTrackEdits(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	task, err := s.Create(ctx, Task{Title: "Comment target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := s.CreateComment(ctx, task.ShortID, "First note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if comment.CreatedAt != comment.UpdatedAt {
+		t.Fatalf("new comment timestamps differ: %#v", comment)
+	}
+	edited, err := s.UpdateComment(ctx, task.ID, comment.ID, "Edited note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited.Body != "Edited note" || !edited.UpdatedAt.After(comment.UpdatedAt) {
+		t.Fatalf("comment edit did not update timestamp: before=%#v after=%#v", comment, edited)
+	}
+	task, err = s.Get(ctx, task.ID)
+	if err != nil || len(task.Comments) != 1 || task.Comments[0].Body != "Edited note" {
+		t.Fatalf("comments were not loaded: %#v, %v", task.Comments, err)
+	}
+	if _, err := s.UpdateComment(ctx, task.ID, "missing-comment", "Nope"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing comment error = %v, want not found", err)
+	}
+}
+
 func TestREST(t *testing.T) {
 	s := testStore(t)
 	h := Server(s)
@@ -67,7 +99,7 @@ func TestREST(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("create: %d %s", w.Code, w.Body.String())
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte(`"tags":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"subtasks":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"related":[]`)) {
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"tags":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"subtasks":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"related":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"comments":[]`)) {
 		t.Fatalf("empty task collections must be arrays: %s", w.Body.String())
 	}
 	var created Task
@@ -81,6 +113,14 @@ func TestREST(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
+	commentRequest := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+created.ID+"/comments", bytes.NewBufferString(`{"body":"REST comment"}`))
+	commentRequest.Host = "127.0.0.1"
+	commentResponse := httptest.NewRecorder()
+	h.ServeHTTP(commentResponse, commentRequest)
+	if commentResponse.Code != http.StatusOK || !bytes.Contains(commentResponse.Body.Bytes(), []byte(`"body":"REST comment"`)) {
+		t.Fatalf("create comment: %d %s", commentResponse.Code, commentResponse.Body.String())
+	}
+
 	w = patch(`{"title":"missing version"}`)
 	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("version is required")) {
 		t.Fatalf("missing version: %d %s", w.Code, w.Body.String())

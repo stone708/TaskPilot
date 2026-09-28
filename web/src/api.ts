@@ -1,4 +1,4 @@
-import { normalizeTask, Task } from "./types";
+import { normalizeTask, Task, TaskComment } from "./types";
 
 type ErrorBody = { error?: string | { message?: string } };
 
@@ -70,4 +70,14 @@ export const taskApi = {
       }),
     ),
   remove: (id: string) => request<void>(`/tasks/${id}`, { method: "DELETE" }),
+  createComment: (taskId: string, body: string) =>
+    request<TaskComment>(`/tasks/${taskId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+  updateComment: (taskId: string, commentId: string, body: string) =>
+    request<TaskComment>(`/tasks/${taskId}/comments/${commentId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ body }),
+    }),
 };
