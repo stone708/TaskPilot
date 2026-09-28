@@ -7,7 +7,7 @@ export type InlineImage = {
 const dataImagePattern =
   /!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)\)/g;
 const imageReferencePattern =
-  /(!\[[^\]]*\]\()taskpilot-image:([a-zA-Z0-9_-]+)(\))/g;
+  /(!?)\[([^\]]*)\]\(taskpilot-image:([a-zA-Z0-9_-]+)\)/g;
 
 export function prepareEditableMarkdown(source: string) {
   const images = new Map<string, InlineImage>();
@@ -34,9 +34,9 @@ export function hydrateImageReferences(
 ) {
   return source.replace(
     imageReferencePattern,
-    (match, prefix: string, id: string, suffix: string) => {
+    (match, imageMarker: string, alt: string, id: string) => {
       const image = images.get(id);
-      return image ? `${prefix}${image.dataUrl}${suffix}` : match;
+      return image ? `${imageMarker}[${alt}](${image.dataUrl})` : match;
     },
   );
 }
@@ -48,10 +48,9 @@ export function findMissingImageReferences(
   const missing: MissingInlineImage[] = [];
   source.replace(
     imageReferencePattern,
-    (_, prefix: string, id: string) => {
+    (_, _imageMarker: string, alt: string, id: string) => {
       if (!images.has(id)) {
-        const name = prefix.slice(2, -2).trim() || "Image";
-        missing.push({ id, name });
+        missing.push({ id, name: alt.trim() || "Image" });
       }
       return _;
     },
@@ -60,10 +59,13 @@ export function findMissingImageReferences(
 }
 
 export function replaceMissingImageReferences(source: string) {
-  return source.replace(imageReferencePattern, (_, prefix: string) => {
-    const name = prefix.slice(2, -2).trim() || "Image";
-    return `_${name} is unavailable_`;
-  });
+  return source.replace(
+    imageReferencePattern,
+    (_, _imageMarker: string, alt: string) => {
+      const name = alt.trim() || "Image";
+      return `_${name} is unavailable_`;
+    },
+  );
 }
 
 export function imageReference(name: string, id: string) {

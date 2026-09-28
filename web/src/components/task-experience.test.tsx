@@ -107,10 +107,13 @@ describe("inline Markdown images", () => {
 
   it("identifies an image reference whose Base64 data is unavailable", () => {
     const missing = findMissingImageReferences(
-      "![Lost image](taskpilot-image:image-missing)",
+      "![Lost image](taskpilot-image:image-missing)\n[Legacy image](taskpilot-image:image-legacy)",
       new Map(),
     );
-    expect(missing).toEqual([{ id: "image-missing", name: "Lost image" }]);
+    expect(missing).toEqual([
+      { id: "image-missing", name: "Lost image" },
+      { id: "image-legacy", name: "Legacy image" },
+    ]);
   });
 });
 
