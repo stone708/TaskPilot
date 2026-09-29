@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -55,6 +56,53 @@ func TestTaskLifecycleAndRelations(t *testing.T) {
 		t.Fatalf("relation cleanup failed: %#v %v", a, e)
 	}
 }
+
+func TestTodayShowsUnfinishedStartedTasks(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	today := time.Now().In(s.loc)
+	past := today.AddDate(0, 0, -1).Format("2006-01-02")
+	current := today.Format("2006-01-02")
+	future := today.AddDate(0, 0, 1).Format("2006-01-02")
+
+	create := func(title, status string, startAt, dueAt *string) Task {
+		task, err := s.Create(ctx, Task{
+			Title: title, Status: status, StartAt: startAt, DueAt: dueAt,
+		})
+		if err != nil {
+			t.Fatalf("create %q: %v", title, err)
+		}
+		return task
+	}
+
+	started := create("Started", "Todo", &current, &future)
+	startedEarlier := create("Started earlier", "Holding", &past, nil)
+	fallbackDue := create("Due without a start date", "Todo", nil, &current)
+	create("Future start overrides due date", "Todo", &future, &current)
+	create("No dates", "Todo", nil, nil)
+	create("Finished today", "Done", &past, &current)
+
+	items, err := s.List(ctx, "today", "", "", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual := map[string]bool{}
+	for _, item := range items {
+		actual[item.ID] = true
+		if item.Status == "Done" {
+			t.Fatalf("Today must not include completed task: %#v", item)
+		}
+	}
+	want := map[string]bool{
+		started.ID:        true,
+		startedEarlier.ID: true,
+		fallbackDue.ID:    true,
+	}
+	if !reflect.DeepEqual(actual, want) {
+		t.Fatalf("Today tasks = %#v, want %#v", actual, want)
+	}
+}
+
 func TestCommentsPersistAndTrackEdits(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()

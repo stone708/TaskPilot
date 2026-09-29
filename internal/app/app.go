@@ -337,8 +337,8 @@ func (s *Store) List(ctx context.Context, scope, status, tag, q, from, to string
 	args := []any{}
 	today := time.Now().In(s.loc).Format("2006-01-02")
 	if scope == "today" {
-		where += " AND ((t.status != 'Done' AND t.due_at <= ?) OR (t.status='Doing' AND t.start_at <= ?) OR (t.status='Done' AND substr(t.completed_at,1,10)=?))"
-		args = append(args, today, today, today)
+		where += " AND t.status != 'Done' AND ((t.start_at IS NOT NULL AND t.start_at <= ?) OR (t.start_at IS NULL AND t.due_at IS NOT NULL AND t.due_at <= ?))"
+		args = append(args, today, today)
 	} else if scope == "inbox" {
 		where += " AND t.due_at IS NULL"
 	}

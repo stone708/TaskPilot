@@ -8,7 +8,7 @@ TaskPilot 是一个本地优先、单用户的个人任务管理器。它将 Rea
 
 - 创建、编辑、删除任务，支持 Todo、Doing、Holding、Done 状态与五级优先级。
 - 支持开始日期、到期日期、标签、描述、子任务、带时间戳的可编辑评论与双向关联任务。
-- Today、Inbox、状态、标签和全局搜索视图；支持 List 与四列 Kanban 视图，Today 使用应用设置的时区计算。
+- Today、Inbox、状态、标签和全局搜索视图；支持 List 与四列 Kanban 视图。Today 显示开始日已到但尚未完成的任务；未设置开始日时，到期日会作为兜底。
 - 描述支持安全的 GitHub Flavored Markdown 预览，包括标题、列表、表格、链接与代码块。
 - 乐观版本号：Web、REST 和 MCP 同时编辑同一任务时，旧版本更新会返回冲突。
 - 本地 REST API、命令行和基于官方 Go SDK 的 MCP Streamable HTTP endpoint。
