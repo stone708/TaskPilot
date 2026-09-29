@@ -25,6 +25,7 @@
   "tags": ["release"],
   "subtasks": [{"id":"…","title":"Collect changes","done":false,"position":0}],
   "related": ["another-task-uuid"],
+  "comments": [{"id":"…","body":"Checked with the team.","color":"lilac","createdAt":"2026-09-21T07:00:00Z","updatedAt":"2026-09-21T07:00:00Z"}],
   "createdAt": "2026-09-21T07:00:00Z",
   "updatedAt": "2026-09-21T07:00:00Z",
   "completedAt": null,
@@ -46,7 +47,7 @@
 
 | 参数 | 含义 |
 | --- | --- |
-| `scope` | `today` 或 `inbox`。 |
+| `scope` | `today` 或 `inbox`。`today` 返回未完成且开始日不晚于今天的任务；没有开始日时，到期日不晚于今天会作为兜底。 |
 | `status` | 指定任务状态。 |
 | `tag` | 标签名称，大小写不敏感。 |
 | `q` | 搜索标题、描述、标签和展示编号。 |
@@ -82,7 +83,27 @@ curl -X PATCH http://127.0.0.1:8080/api/v1/tasks/TASK-101 \
 
 ### `DELETE /tasks/{id}`
 
-删除任务，并自动清理双向关联。
+删除任务，并自动清理双向关联和评论。
+
+### `POST /tasks/{id}/comments`
+
+直接添加评论。评论独立保存，不需要提交任务的 `version`。`color` 只能是 `lilac`、`blue`、`mint`、`amber` 或 `rose`，缺省为 `lilac`。
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/tasks/TASK-101/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"body":"Ready for review.","color":"mint"}'
+```
+
+### `PATCH /tasks/{id}/comments/{commentId}`
+
+修改评论正文或背景颜色；服务会保留 `createdAt` 并更新评论的 `updatedAt`。
+
+```bash
+curl -X PATCH http://127.0.0.1:8080/api/v1/tasks/TASK-101/comments/COMMENT_UUID \
+  -H 'Content-Type: application/json' \
+  -d '{"body":"Updated after review.","color":"rose"}'
+```
 
 ## 标签
 

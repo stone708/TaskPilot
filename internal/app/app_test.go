@@ -3,10 +3,13 @@ package app
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -53,6 +56,86 @@ func TestTaskLifecycleAndRelations(t *testing.T) {
 		t.Fatalf("relation cleanup failed: %#v %v", a, e)
 	}
 }
+
+func TestTodayShowsUnfinishedStartedTasks(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	today := time.Now().In(s.loc)
+	past := today.AddDate(0, 0, -1).Format("2006-01-02")
+	current := today.Format("2006-01-02")
+	future := today.AddDate(0, 0, 1).Format("2006-01-02")
+
+	create := func(title, status string, startAt, dueAt *string) Task {
+		task, err := s.Create(ctx, Task{
+			Title: title, Status: status, StartAt: startAt, DueAt: dueAt,
+		})
+		if err != nil {
+			t.Fatalf("create %q: %v", title, err)
+		}
+		return task
+	}
+
+	started := create("Started", "Todo", &current, &future)
+	startedEarlier := create("Started earlier", "Holding", &past, nil)
+	fallbackDue := create("Due without a start date", "Todo", nil, &current)
+	create("Future start overrides due date", "Todo", &future, &current)
+	create("No dates", "Todo", nil, nil)
+	create("Finished today", "Done", &past, &current)
+
+	items, err := s.List(ctx, "today", "", "", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual := map[string]bool{}
+	for _, item := range items {
+		actual[item.ID] = true
+		if item.Status == "Done" {
+			t.Fatalf("Today must not include completed task: %#v", item)
+		}
+	}
+	want := map[string]bool{
+		started.ID:        true,
+		startedEarlier.ID: true,
+		fallbackDue.ID:    true,
+	}
+	if !reflect.DeepEqual(actual, want) {
+		t.Fatalf("Today tasks = %#v, want %#v", actual, want)
+	}
+}
+
+func TestCommentsPersistAndTrackEdits(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	task, err := s.Create(ctx, Task{Title: "Comment target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := s.CreateComment(ctx, task.ShortID, "First note", "mint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if comment.Color != "mint" || comment.CreatedAt != comment.UpdatedAt {
+		t.Fatalf("new comment timestamps differ: %#v", comment)
+	}
+	edited, err := s.UpdateComment(ctx, task.ID, comment.ID, "Edited note", "rose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited.Body != "Edited note" || edited.Color != "rose" || !edited.UpdatedAt.After(comment.UpdatedAt) {
+		t.Fatalf("comment edit did not update timestamp: before=%#v after=%#v", comment, edited)
+	}
+	task, err = s.Get(ctx, task.ID)
+	if err != nil || len(task.Comments) != 1 || task.Comments[0].Body != "Edited note" {
+		t.Fatalf("comments were not loaded: %#v, %v", task.Comments, err)
+	}
+	if _, err := s.CreateComment(ctx, task.ID, "Invalid color", "neon"); err == nil || err.Error() != "invalid comment color" {
+		t.Fatalf("invalid comment color error = %v", err)
+	}
+	if _, err := s.UpdateComment(ctx, task.ID, "missing-comment", "Nope", "lilac"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing comment error = %v, want not found", err)
+	}
+}
+
 func TestREST(t *testing.T) {
 	s := testStore(t)
 	h := Server(s)
@@ -67,7 +150,7 @@ func TestREST(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("create: %d %s", w.Code, w.Body.String())
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte(`"tags":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"subtasks":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"related":[]`)) {
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"tags":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"subtasks":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"related":[]`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"comments":[]`)) {
 		t.Fatalf("empty task collections must be arrays: %s", w.Body.String())
 	}
 	var created Task
@@ -81,6 +164,14 @@ func TestREST(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
+	commentRequest := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+created.ID+"/comments", bytes.NewBufferString(`{"body":"REST comment","color":"blue"}`))
+	commentRequest.Host = "127.0.0.1"
+	commentResponse := httptest.NewRecorder()
+	h.ServeHTTP(commentResponse, commentRequest)
+	if commentResponse.Code != http.StatusOK || !bytes.Contains(commentResponse.Body.Bytes(), []byte(`"body":"REST comment"`)) || !bytes.Contains(commentResponse.Body.Bytes(), []byte(`"color":"blue"`)) {
+		t.Fatalf("create comment: %d %s", commentResponse.Code, commentResponse.Body.String())
+	}
+
 	w = patch(`{"title":"missing version"}`)
 	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("version is required")) {
 		t.Fatalf("missing version: %d %s", w.Code, w.Body.String())

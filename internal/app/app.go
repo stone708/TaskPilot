@@ -34,6 +34,7 @@ type Task struct {
 	Tags        []string   `json:"tags"`
 	Subtasks    []Subtask  `json:"subtasks"`
 	Related     []string   `json:"related"`
+	Comments    []Comment  `json:"comments"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	CompletedAt *time.Time `json:"completedAt"`
@@ -45,13 +46,24 @@ type Subtask struct {
 	Done     bool   `json:"done"`
 	Position int    `json:"position"`
 }
+
+type Comment struct {
+	ID        string    `json:"id"`
+	Body      string    `json:"body"`
+	Color     string    `json:"color"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
 type Store struct {
-	db  *sql.DB
-	loc *time.Location
+	db         *sql.DB
+	loc        *time.Location
+	path       string
+	backupPath string
 }
 
 var statuses = map[string]bool{"Todo": true, "Doing": true, "Holding": true, "Done": true}
 var priorities = map[string]bool{"None": true, "Low": true, "Medium": true, "High": true, "Urgent": true}
+var commentColors = map[string]bool{"lilac": true, "blue": true, "mint": true, "amber": true, "rose": true}
 
 func DataPath(override string) (string, error) {
 	if override != "" {
@@ -63,23 +75,59 @@ func DataPath(override string) (string, error) {
 	}
 	return filepath.Join(d, "TaskPilot", "taskpilot.db"), nil
 }
+
 func Open(path string) (*Store, error) {
-	if e := os.MkdirAll(filepath.Dir(path), 0755); e != nil {
-		return nil, e
+	info, err := os.Stat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
-	db, e := sql.Open("sqlite", path)
-	if e != nil {
-		return nil, e
+	existingDatabase := err == nil && info.Size() > 0
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, err
 	}
-	s := &Store{db: db, loc: time.Local}
-	_, e = db.Exec(`PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,short_id TEXT UNIQUE NOT NULL,title TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',status TEXT NOT NULL,priority TEXT NOT NULL DEFAULT 'None',start_at TEXT,due_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,completed_at TEXT,version INTEGER NOT NULL DEFAULT 1); CREATE TABLE IF NOT EXISTS tags(id INTEGER PRIMARY KEY,name TEXT UNIQUE COLLATE NOCASE NOT NULL); CREATE TABLE IF NOT EXISTS task_tags(task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,PRIMARY KEY(task_id,tag_id)); CREATE TABLE IF NOT EXISTS subtasks(id TEXT PRIMARY KEY,task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,title TEXT NOT NULL,done INTEGER NOT NULL DEFAULT 0,position INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS task_relations(a TEXT REFERENCES tasks(id) ON DELETE CASCADE,b TEXT REFERENCES tasks(id) ON DELETE CASCADE,PRIMARY KEY(a,b),CHECK(a<b)); INSERT OR IGNORE INTO schema_migrations VALUES(1,datetime('now')); INSERT OR IGNORE INTO meta VALUES('next_short_id','101'); INSERT OR IGNORE INTO meta VALUES('timezone','` + time.Local.String() + `');`)
-	if e != nil {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000`); err != nil {
 		db.Close()
-		return nil, e
+		return nil, err
 	}
-	return s, nil
+
+	ctx := context.Background()
+	_, applied, currentVersion, err := migrationState(ctx, db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	latestVersion := latestSchemaVersion(databaseMigrations)
+	if currentVersion > latestVersion {
+		db.Close()
+		return nil, fmt.Errorf("database schema version %d is newer than this TaskPilot build (supports %d)", currentVersion, latestVersion)
+	}
+	pending := pendingMigrations(databaseMigrations, applied)
+	backupPath := ""
+	if existingDatabase && len(pending) > 0 {
+		backupPath, err = createMigrationBackup(ctx, db, path, currentVersion, latestVersion)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if _, err := applyMigrations(ctx, db, databaseMigrations); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, loc: time.Local, path: path, backupPath: backupPath}, nil
 }
-func (s *Store) Close() error   { return s.db.Close() }
+
+func (s *Store) Close() error { return s.db.Close() }
+
+// BackupPath is the consistent pre-migration snapshot created when this process upgraded the database.
+func (s *Store) BackupPath() string { return s.backupPath }
+
+func (s *Store) DatabasePath() string { return s.path }
+
 func (s *Store) now() time.Time { return time.Now().UTC() }
 func validDate(v *string) error {
 	if v == nil {
@@ -210,7 +258,7 @@ func (s *Store) query(ctx context.Context, where string, args ...any) (*sql.Rows
 	return s.db.QueryContext(ctx, `SELECT t.id,t.short_id,t.title,t.description,t.status,t.priority,t.start_at,t.due_at,t.created_at,t.updated_at,t.completed_at,t.version FROM tasks t `+where+` ORDER BY CASE t.priority WHEN 'Urgent' THEN 5 WHEN 'High' THEN 4 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 2 ELSE 1 END DESC, COALESCE(t.due_at,'9999-12-31'),t.created_at DESC`, args...)
 }
 func scan(r *sql.Rows) (Task, error) {
-	t := Task{Tags: make([]string, 0), Subtasks: make([]Subtask, 0), Related: make([]string, 0)}
+	t := Task{Tags: make([]string, 0), Subtasks: make([]Subtask, 0), Related: make([]string, 0), Comments: make([]Comment, 0)}
 	var st, du, co sql.NullString
 	var cr, up string
 	e := r.Scan(&t.ID, &t.ShortID, &t.Title, &t.Description, &t.Status, &t.Priority, &st, &du, &cr, &up, &co, &t.Version)
@@ -262,6 +310,26 @@ func (s *Store) loadChildren(ctx context.Context, t Task) (Task, error) {
 		t.Related = append(t.Related, x)
 	}
 	rs.Close()
+	rs, e = s.db.QueryContext(ctx, "SELECT id,body,color,created_at,updated_at FROM comments WHERE task_id=? ORDER BY created_at", t.ID)
+	if e != nil {
+		return t, e
+	}
+	for rs.Next() {
+		var x Comment
+		var createdAt, updatedAt string
+		if e := rs.Scan(&x.ID, &x.Body, &x.Color, &createdAt, &updatedAt); e != nil {
+			rs.Close()
+			return t, e
+		}
+		x.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+		x.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+		t.Comments = append(t.Comments, x)
+	}
+	if e := rs.Err(); e != nil {
+		rs.Close()
+		return t, e
+	}
+	rs.Close()
 	return t, nil
 }
 func (s *Store) List(ctx context.Context, scope, status, tag, q, from, to string) ([]Task, error) {
@@ -269,8 +337,8 @@ func (s *Store) List(ctx context.Context, scope, status, tag, q, from, to string
 	args := []any{}
 	today := time.Now().In(s.loc).Format("2006-01-02")
 	if scope == "today" {
-		where += " AND ((t.status != 'Done' AND t.due_at <= ?) OR (t.status='Doing' AND t.start_at <= ?) OR (t.status='Done' AND substr(t.completed_at,1,10)=?))"
-		args = append(args, today, today, today)
+		where += " AND t.status != 'Done' AND ((t.start_at IS NOT NULL AND t.start_at <= ?) OR (t.start_at IS NULL AND t.due_at IS NOT NULL AND t.due_at <= ?))"
+		args = append(args, today, today)
 	} else if scope == "inbox" {
 		where += " AND t.due_at IS NULL"
 	}
@@ -394,6 +462,72 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	_, e = s.db.ExecContext(ctx, "DELETE FROM tasks WHERE id=?", t.ID)
 	return e
 }
+func validCommentColor(color string) (string, error) {
+	if color == "" {
+		return "lilac", nil
+	}
+	if !commentColors[color] {
+		return "", errors.New("invalid comment color")
+	}
+	return color, nil
+}
+
+func (s *Store) CreateComment(ctx context.Context, taskKey, body, color string) (Comment, error) {
+	var taskID string
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM tasks WHERE id=? OR short_id=?", taskKey, taskKey).Scan(&taskID); err != nil {
+		return Comment{}, err
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Comment{}, errors.New("comment body is required")
+	}
+	if len(body) > 10000 {
+		return Comment{}, errors.New("comment is too long")
+	}
+	color, err := validCommentColor(color)
+	if err != nil {
+		return Comment{}, err
+	}
+	now := s.now()
+	comment := Comment{ID: uuid.NewString(), Body: body, Color: color, CreatedAt: now, UpdatedAt: now}
+	_, err = s.db.ExecContext(ctx, "INSERT INTO comments(id,task_id,body,color,created_at,updated_at) VALUES(?,?,?,?,?,?)", comment.ID, taskID, comment.Body, comment.Color, comment.CreatedAt.Format(time.RFC3339Nano), comment.UpdatedAt.Format(time.RFC3339Nano))
+	return comment, err
+}
+
+func (s *Store) UpdateComment(ctx context.Context, taskKey, commentID, body, color string) (Comment, error) {
+	var taskID string
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM tasks WHERE id=? OR short_id=?", taskKey, taskKey).Scan(&taskID); err != nil {
+		return Comment{}, err
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Comment{}, errors.New("comment body is required")
+	}
+	if len(body) > 10000 {
+		return Comment{}, errors.New("comment is too long")
+	}
+	color, err := validCommentColor(color)
+	if err != nil {
+		return Comment{}, err
+	}
+	now := s.now()
+	result, err := s.db.ExecContext(ctx, "UPDATE comments SET body=?,color=?,updated_at=? WHERE id=? AND task_id=?", body, color, now.Format(time.RFC3339Nano), commentID, taskID)
+	if err != nil {
+		return Comment{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil {
+		return Comment{}, err
+	} else if changed == 0 {
+		return Comment{}, sql.ErrNoRows
+	}
+	var createdAt string
+	if err := s.db.QueryRowContext(ctx, "SELECT created_at FROM comments WHERE id=?", commentID).Scan(&createdAt); err != nil {
+		return Comment{}, err
+	}
+	created, _ := time.Parse(time.RFC3339Nano, createdAt)
+	return Comment{ID: commentID, Body: body, Color: color, CreatedAt: created, UpdatedAt: now}, nil
+}
+
 func (s *Store) Tags(ctx context.Context) ([]string, error) {
 	rs, e := s.db.QueryContext(ctx, "SELECT name FROM tags ORDER BY name")
 	if e != nil {
@@ -457,7 +591,42 @@ func Server(s *Store) http.Handler {
 		http.Error(w, "method not allowed", 405)
 	})
 	mux.HandleFunc("/api/v1/tasks/", func(w http.ResponseWriter, r *http.Request) {
-		key := strings.TrimPrefix(r.URL.Path, "/api/v1/tasks/")
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/tasks/"), "/"), "/")
+		if len(parts) >= 2 && parts[1] == "comments" {
+			if len(parts) == 2 && r.Method == http.MethodPost {
+				var input struct {
+					Body  string `json:"body"`
+					Color string `json:"color"`
+				}
+				err := json.NewDecoder(r.Body).Decode(&input)
+				var comment Comment
+				if err == nil {
+					comment, err = s.CreateComment(r.Context(), parts[0], input.Body, input.Color)
+				}
+				respond(w, err, comment)
+				return
+			}
+			if len(parts) == 3 && r.Method == http.MethodPatch {
+				var input struct {
+					Body  string `json:"body"`
+					Color string `json:"color"`
+				}
+				err := json.NewDecoder(r.Body).Decode(&input)
+				var comment Comment
+				if err == nil {
+					comment, err = s.UpdateComment(r.Context(), parts[0], parts[2], input.Body, input.Color)
+				}
+				respond(w, err, comment)
+				return
+			}
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if len(parts) != 1 || parts[0] == "" {
+			http.NotFound(w, r)
+			return
+		}
+		key := parts[0]
 		if r.Method == "GET" {
 			t, e := s.Get(r.Context(), key)
 			respond(w, e, t)
