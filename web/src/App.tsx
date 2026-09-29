@@ -257,7 +257,7 @@ export function App() {
               <h1>{titleFor(scope, activeTag, activeStatus)}</h1>
               <p>
                 {scope === "today"
-                  ? "Due, overdue, and active tasks"
+                  ? "Tasks ready to start"
                   : "Your personal workspace"}
               </p>
             </div>
@@ -296,9 +296,6 @@ export function App() {
               )}
             </div>
           )}
-          <button className="quick-add" onClick={() => setEditing(emptyTask())}>
-            <Plus size={16} /> Add task <span>Create quickly</span>
-          </button>
           {loading ? (
             <div className="empty">Loading tasks…</div>
           ) : !hasTasks ? (
@@ -322,6 +319,8 @@ export function App() {
                   name={group}
                   tasks={items}
                   open={setEditing}
+                  movingTaskId={movingTaskId}
+                  onStatusChange={moveTask}
                 />
               ) : null,
             )
@@ -452,10 +451,14 @@ function TaskGroup({
   name,
   tasks,
   open,
+  movingTaskId,
+  onStatusChange,
 }: {
   name: Status;
   tasks: Task[];
   open: (task: Task) => void;
+  movingTaskId: string | null;
+  onStatusChange: (task: Task, status: Status) => Promise<void>;
 }) {
   return (
     <div className="task-group">
@@ -464,26 +467,96 @@ function TaskGroup({
         <span>{tasks.length}</span>
       </h2>
       {tasks.map((task) => (
-        <button
-          className={`task-row ${task.status === "Done" ? "done" : ""}`}
+        <TaskRow
           key={task.id}
-          onClick={() => open(task)}
-        >
-          <i className={task.status.toLowerCase()} />
-          <span className="task-copy">
-            <strong>{task.title}</strong>
-            <small>
-              {task.tags.map((tag) => `#${tag}`).join(" · ")}
-              {task.related.length ? ` · ↗ ${task.related.length}` : ""}
-            </small>
-          </span>
-          {task.priority !== "None" && (
-            <em className={task.priority.toLowerCase()}>{task.priority}</em>
-          )}
-          <time>{task.dueAt || ""}</time>
-          <ChevronRight size={15} />
-        </button>
+          task={task}
+          moving={movingTaskId === task.id}
+          onOpen={open}
+          onStatusChange={onStatusChange}
+        />
       ))}
     </div>
   );
+}
+
+function TaskRow({
+  task,
+  moving,
+  onOpen,
+  onStatusChange,
+}: {
+  task: Task;
+  moving: boolean;
+  onOpen: (task: Task) => void;
+  onStatusChange: (task: Task, status: Status) => Promise<void>;
+}) {
+  const action = quickAction(task);
+  const timing = taskTiming(task);
+  return (
+    <div className={`task-row ${task.status === "Done" ? "done" : ""}`}>
+      <button
+        className="task-open"
+        aria-label={`Open ${task.shortId}: ${task.title}`}
+        onClick={() => onOpen(task)}
+      >
+        <i className={task.status.toLowerCase()} />
+        <span className="task-copy">
+          <strong>{task.title}</strong>
+          <small>
+            {task.tags.map((tag) => `#${tag}`).join(" · ")}
+            {task.related.length ? ` · ↗ ${task.related.length}` : ""}
+          </small>
+        </span>
+      </button>
+      <span className="task-priority">
+        {task.priority !== "None" && (
+          <em className={task.priority.toLowerCase()}>{task.priority}</em>
+        )}
+      </span>
+      <time className={timing.overdue ? "overdue" : ""}>{timing.label}</time>
+      {action && (
+        <button
+          className="task-row-action"
+          aria-label={`${action.label} ${task.shortId}: ${task.title}`}
+          disabled={moving}
+          onClick={() => void onStatusChange(task, action.status)}
+        >
+          {moving ? "Updating…" : action.label}
+        </button>
+      )}
+      {!action && <span className="task-row-action-placeholder" aria-hidden="true" />}
+      <ChevronRight size={15} />
+    </div>
+  );
+}
+
+function quickAction(task: Task): { label: string; status: Status } | null {
+  if (task.status === "Todo") return { label: "Start", status: "Doing" };
+  if (task.status === "Doing") return { label: "Complete", status: "Done" };
+  if (task.status === "Holding") return { label: "Resume", status: "Doing" };
+  return null;
+}
+
+function taskTiming(task: Task): { label: string; overdue: boolean } {
+  const date = task.dueAt || task.startAt;
+  if (!date) return { label: "No schedule", overdue: false };
+  const today = new Date();
+  const localToday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  const target = new Date(`${date}T00:00:00`);
+  const days = Math.round(
+    (target.getTime() - localToday.getTime()) / (24 * 60 * 60 * 1000),
+  );
+  if (task.dueAt) {
+    if (days < 0) return { label: `Overdue ${Math.abs(days)}d`, overdue: true };
+    if (days === 0) return { label: "Due today", overdue: false };
+    if (days === 1) return { label: "Due tomorrow", overdue: false };
+    return { label: `Due ${date}`, overdue: false };
+  }
+  if (days < 0) return { label: `Started ${Math.abs(days)}d ago`, overdue: false };
+  if (days === 0) return { label: "Starts today", overdue: false };
+  return { label: `Starts ${date}`, overdue: false };
 }

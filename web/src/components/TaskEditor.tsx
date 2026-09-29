@@ -116,6 +116,11 @@ export function TaskEditor({
     );
   };
   const changed = () => JSON.stringify(currentTask()) !== original.current;
+  const saveState = busy
+    ? "saving"
+    : !draft.id || changed()
+      ? "unsaved"
+      : "saved";
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -622,7 +627,13 @@ export function TaskEditor({
               <Trash2 size={15} /> Delete
             </button>
           )}
-          <span />
+          <span className={`save-status ${saveState}`} aria-live="polite">
+            {saveState === "saving"
+              ? "Saving…"
+              : saveState === "unsaved"
+                ? "Unsaved changes"
+                : "Saved"}
+          </span>
           <button disabled={busy} onClick={requestClose}>
             Cancel
           </button>

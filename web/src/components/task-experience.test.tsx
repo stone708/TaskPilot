@@ -174,6 +174,28 @@ describe("TaskEditor", () => {
     expect(screen.getByText("Kanban")).toBeTruthy();
   });
 
+  it("shows whether the task draft has unsaved changes", async () => {
+    const user = userEvent.setup();
+    const item = task({ description: "Notes" });
+    render(
+      <TaskEditor
+        task={item}
+        allTasks={[item]}
+        busy={false}
+        onClose={vi.fn()}
+        onDelete={vi.fn(async () => undefined)}
+        onJump={vi.fn()}
+        onSave={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(screen.getByText("Saved")).toBeTruthy();
+    const title = screen.getByRole("textbox", { name: "Task title" });
+    await user.clear(title);
+    await user.type(title, "Updated docs");
+    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+  });
+
   it("renders stored Base64 images without exposing their contents in Edit mode", async () => {
     const user = userEvent.setup();
     const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
@@ -375,5 +397,53 @@ describe("task board updates", () => {
       ),
     );
     expect(screen.getByRole("button", { name: /Open TASK-1/ })).toBeTruthy();
+  });
+});
+
+describe("task list workflow", () => {
+  it("uses Today start language, one creation action, and a quick start control", async () => {
+    const today = new Date();
+    const startAt = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-");
+    let current = task({ startAt, dueAt: null, status: "Todo", version: 1 });
+    const response = (body: unknown) => ({
+      ok: true,
+      json: async () => body,
+    });
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === "/api/v1/tasks/task-1" && init?.method === "PATCH") {
+        current = { ...current, status: "Doing", version: 2 };
+        return Promise.resolve(response(current));
+      }
+      if (path.startsWith("/api/v1/tasks"))
+        return Promise.resolve(response([current]));
+      if (path === "/api/v1/tags") return Promise.resolve(response([]));
+      return Promise.resolve(response({ today: 1, inbox: 0, all: 1, todo: 1 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText("Tasks ready to start")).toBeTruthy();
+    expect(screen.queryByText("Create quickly")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Add Task" })).toHaveLength(1);
+    expect(screen.getByText("Starts today")).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("button", { name: "Start TASK-1: Write docs" }),
+    );
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/tasks/task-1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: expect.stringContaining('"status":"Doing"'),
+        }),
+      ),
+    );
   });
 });
