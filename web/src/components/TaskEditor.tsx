@@ -68,7 +68,7 @@ export function TaskEditor({
   );
   const [tagText, setTagText] = useState(task.tags.join(", "));
   const [descriptionMode, setDescriptionMode] = useState<"edit" | "preview">(
-    "edit",
+    "preview",
   );
   const [error, setError] = useState("");
   const [comments, setComments] = useState(task.comments);

@@ -133,7 +133,9 @@ describe("TaskEditor", () => {
       />,
     );
     expect(container.querySelector(".task-workspace")).toBeTruthy();
-    await user.click(screen.getByRole("tab", { name: "Preview" }));
+    expect(
+      screen.getByRole("tab", { name: "Preview" }).getAttribute("aria-selected"),
+    ).toBe("true");
     expect(screen.getByRole("heading", { name: "Release notes" })).toBeTruthy();
     expect(screen.getByText("Kanban")).toBeTruthy();
   });
@@ -155,6 +157,7 @@ describe("TaskEditor", () => {
       />,
     );
 
+    await user.click(screen.getByRole("tab", { name: "Edit" }));
     const editor = screen.getByRole("textbox", { name: "Description" });
     expect((editor as HTMLTextAreaElement).value).toContain(
       "taskpilot-image:image-1",
@@ -266,7 +269,9 @@ describe("TaskEditor", () => {
       />,
     );
 
-    await user.click(screen.getByRole("tab", { name: "Preview" }));
+    expect(
+      screen.getByRole("tab", { name: "Preview" }).getAttribute("aria-selected"),
+    ).toBe("true");
     expect(screen.getByRole("alert").textContent).toContain(
       "Lost image” is unavailable",
     );
