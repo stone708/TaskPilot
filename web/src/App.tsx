@@ -208,6 +208,18 @@ export function App() {
     [tasks],
   );
   const hasTasks = groups.some(([, items]) => items.length > 0);
+  const todaySummary = useMemo(
+    () => ({
+      ready: tasks.filter(
+        (task) => task.status === "Todo" || task.status === "Holding",
+      ).length,
+      doing: tasks.filter((task) => task.status === "Doing").length,
+      overdue: tasks.filter(
+        (task) => task.dueAt !== null && isBeforeToday(task.dueAt),
+      ).length,
+    }),
+    [tasks],
+  );
 
   return (
     <div className="app-shell">
@@ -260,6 +272,19 @@ export function App() {
                   ? "Tasks ready to start"
                   : "Your personal workspace"}
               </p>
+              {scope === "today" && (
+                <div className="today-summary" aria-label="Today summary">
+                  <span>
+                    <b>{todaySummary.ready}</b> ready
+                  </span>
+                  <span>
+                    <b>{todaySummary.doing}</b> doing
+                  </span>
+                  <span className={todaySummary.overdue ? "overdue" : ""}>
+                    <b>{todaySummary.overdue}</b> overdue
+                  </span>
+                </div>
+              )}
             </div>
             <div className="view-switch" aria-label="Choose task view">
               <button
@@ -524,7 +549,9 @@ function TaskRow({
           {moving ? "Updating…" : action.label}
         </button>
       )}
-      {!action && <span className="task-row-action-placeholder" aria-hidden="true" />}
+      {!action && (
+        <span className="task-row-action-placeholder" aria-hidden="true" />
+      )}
       <ChevronRight size={15} />
     </div>
   );
@@ -556,7 +583,14 @@ function taskTiming(task: Task): { label: string; overdue: boolean } {
     if (days === 1) return { label: "Due tomorrow", overdue: false };
     return { label: `Due ${date}`, overdue: false };
   }
-  if (days < 0) return { label: `Started ${Math.abs(days)}d ago`, overdue: false };
+  if (days < 0)
+    return { label: `Started ${Math.abs(days)}d ago`, overdue: false };
   if (days === 0) return { label: "Starts today", overdue: false };
   return { label: `Starts ${date}`, overdue: false };
+}
+
+function isBeforeToday(date: string) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return new Date(`${date}T00:00:00`) < today;
 }

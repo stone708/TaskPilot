@@ -131,9 +131,9 @@ describe("inline Markdown images", () => {
     const editable = prepareEditableMarkdown(source);
 
     expect(editable.markdown).toContain("taskpilot-size:60");
-    expect(
-      resizeImageReference(editable.markdown, "image-1", 40),
-    ).toContain("taskpilot-size:40");
+    expect(resizeImageReference(editable.markdown, "image-1", 40)).toContain(
+      "taskpilot-size:40",
+    );
     expect(hydrateImageReferences(editable.markdown, editable.images)).toBe(
       source,
     );
@@ -168,7 +168,9 @@ describe("TaskEditor", () => {
     );
     expect(container.querySelector(".task-workspace")).toBeTruthy();
     expect(
-      screen.getByRole("tab", { name: "Preview" }).getAttribute("aria-selected"),
+      screen
+        .getByRole("tab", { name: "Preview" })
+        .getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByRole("heading", { name: "Release notes" })).toBeTruthy();
     expect(screen.getByText("Kanban")).toBeTruthy();
@@ -221,7 +223,9 @@ describe("TaskEditor", () => {
     expect((editor as HTMLTextAreaElement).value).toContain(
       "taskpilot-image:image-1",
     );
-    expect((editor as HTMLTextAreaElement).value).toContain("taskpilot-size:60");
+    expect((editor as HTMLTextAreaElement).value).toContain(
+      "taskpilot-size:60",
+    );
     expect((editor as HTMLTextAreaElement).value).not.toContain("iVBORw0KGgo=");
 
     await user.click(screen.getByRole("tab", { name: "Preview" }));
@@ -275,9 +279,11 @@ describe("TaskEditor", () => {
     );
 
     expect(container.querySelector(".task-main-grid")).toBeTruthy();
+    expect(screen.getByText("Lilac background")).toBeTruthy();
     await user.click(
       screen.getByRole("button", { name: "Use mint comment background" }),
     );
+    expect(screen.getByText("Mint background")).toBeTruthy();
     await user.type(
       screen.getByRole("textbox", { name: "Comment" }),
       "First comment",
@@ -300,6 +306,7 @@ describe("TaskEditor", () => {
     await user.click(
       screen.getByRole("button", { name: "Use rose comment background" }),
     );
+    expect(screen.getByText("Rose background")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Update comment" }));
     expect(await screen.findByText("Edited comment")).toBeTruthy();
     expect(screen.getByText(/Edited Sep/)).toBeTruthy();
@@ -311,6 +318,70 @@ describe("TaskEditor", () => {
         body: JSON.stringify({ body: "Edited comment", color: "rose" }),
       }),
     );
+  });
+
+  it("keeps empty related tasks and subtasks collapsed, then opens them on request", async () => {
+    const user = userEvent.setup();
+    const item = task({ related: [], subtasks: [] });
+    render(
+      <TaskEditor
+        task={item}
+        allTasks={[item]}
+        busy={false}
+        onClose={vi.fn()}
+        onDelete={vi.fn(async () => undefined)}
+        onJump={vi.fn()}
+        onSave={vi.fn(async () => undefined)}
+      />,
+    );
+
+    const relatedToggle = screen.getByRole("button", { name: /Related tasks/ });
+    const subtasksToggle = screen.getByRole("button", { name: /Subtasks/ });
+    expect(relatedToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(subtasksToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("combobox", { name: "Link a task" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add subtask/ })).toBeNull();
+
+    await user.click(relatedToggle);
+    await user.click(subtasksToggle);
+    expect(screen.getByRole("combobox", { name: "Link a task" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add subtask/ })).toBeTruthy();
+  });
+
+  it("opens related tasks and subtasks when the task already has them", () => {
+    const related = task({
+      id: "task-2",
+      shortId: "TASK-2",
+      title: "Review copy",
+    });
+    const item = task({
+      related: [related.id],
+      subtasks: [{ id: "subtask-1", title: "Check detail", done: false }],
+    });
+    render(
+      <TaskEditor
+        task={item}
+        allTasks={[item, related]}
+        busy={false}
+        onClose={vi.fn()}
+        onDelete={vi.fn(async () => undefined)}
+        onJump={vi.fn()}
+        onSave={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole("button", { name: /Related tasks/ })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(screen.getByText("TASK-2 · Review copy")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Subtasks/ })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(screen.getByDisplayValue("Check detail")).toBeTruthy();
   });
 
   it("explains missing images in Preview and blocks saving their broken reference", async () => {
@@ -332,7 +403,9 @@ describe("TaskEditor", () => {
     );
 
     expect(
-      screen.getByRole("tab", { name: "Preview" }).getAttribute("aria-selected"),
+      screen
+        .getByRole("tab", { name: "Preview" })
+        .getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByRole("alert").textContent).toContain(
       "Lost image” is unavailable",
@@ -429,6 +502,15 @@ describe("task list workflow", () => {
     render(<App />);
 
     expect(await screen.findByText("Tasks ready to start")).toBeTruthy();
+    expect(screen.getByLabelText("Today summary").textContent).toContain(
+      "1 ready",
+    );
+    expect(screen.getByLabelText("Today summary").textContent).toContain(
+      "0 doing",
+    );
+    expect(screen.getByLabelText("Today summary").textContent).toContain(
+      "0 overdue",
+    );
     expect(screen.queryByText("Create quickly")).toBeNull();
     expect(screen.getAllByRole("button", { name: "Add Task" })).toHaveLength(1);
     expect(screen.getByText("Starts today")).toBeTruthy();

@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Eye, FilePenLine, ImagePlus, Pencil, Send, Trash2, X } from "lucide-react";
+import {
+  ChevronDown,
+  Eye,
+  FilePenLine,
+  ImagePlus,
+  Pencil,
+  Send,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   commentColors,
   CommentColor,
@@ -39,6 +48,9 @@ const parseTags = (value: string) => [
   ),
 ];
 
+const commentColorName = (color: CommentColor) =>
+  `${color[0].toUpperCase()}${color.slice(1)}`;
+
 export function TaskEditor({
   task,
   allTasks,
@@ -77,6 +89,8 @@ export function TaskEditor({
   const [commentColor, setCommentColor] = useState<CommentColor>("lilac");
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [commentBusy, setCommentBusy] = useState(false);
+  const [relatedOpen, setRelatedOpen] = useState(task.related.length > 0);
+  const [subtasksOpen, setSubtasksOpen] = useState(task.subtasks.length > 0);
   const original = useRef(JSON.stringify(task));
   const titleRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -197,9 +211,7 @@ export function TaskEditor({
         : await taskApi.createComment(draft.id, body, commentColor);
       setComments((current) =>
         editingCommentId
-          ? current.map((item) =>
-              item.id === comment.id ? comment : item,
-            )
+          ? current.map((item) => (item.id === comment.id ? comment : item))
           : [...current, comment],
       );
       setCommentText("");
@@ -379,8 +391,8 @@ export function TaskEditor({
                         <ImagePlus size={14} /> Add image
                       </button>
                       <span>
-                        Images are stored with the task; Base64 stays hidden while
-                        editing.
+                        Images are stored with the task; Base64 stays hidden
+                        while editing.
                       </span>
                       <input
                         ref={imageInputRef}
@@ -401,19 +413,21 @@ export function TaskEditor({
                     />
                   </>
                 ) : (
-                <MarkdownPreview
-                  source={hydrateImageReferences(draft.description, images)}
-                  missingImages={findMissingImageReferences(
-                    draft.description,
-                    images,
-                  )}
-                  onImageSizeChange={resizeImage}
-                />
+                  <MarkdownPreview
+                    source={hydrateImageReferences(draft.description, images)}
+                    missingImages={findMissingImageReferences(
+                      draft.description,
+                      images,
+                    )}
+                    onImageSizeChange={resizeImage}
+                  />
                 )}
               </Section>
               <Section title="Comments" className="comments-section">
                 {!draft.id ? (
-                  <p className="comments-note">Save this task before adding comments.</p>
+                  <p className="comments-note">
+                    Save this task before adding comments.
+                  </p>
                 ) : (
                   <>
                     <div className="comment-list" aria-live="polite">
@@ -442,8 +456,8 @@ export function TaskEditor({
                             </div>
                             {editingCommentId === comment.id ? (
                               <p className="comment-editing">
-                              Editing this comment below.
-                            </p>
+                                Editing this comment below.
+                              </p>
                             ) : (
                               <p>{comment.body}</p>
                             )}
@@ -464,24 +478,30 @@ export function TaskEditor({
                         disabled={commentBusy || busy}
                       />
                       <div className="comment-composer-actions">
-                        <div
-                          className="comment-color-picker"
-                          role="group"
-                          aria-label="Comment background color"
-                        >
-                          {commentColors.map((color) => (
-                            <button
-                              key={color}
-                              type="button"
-                              className={`comment-color ${color} ${
-                              commentColor === color ? "selected" : ""
-                            }`}
-                              aria-label={`Use ${color} comment background`}
-                              aria-pressed={commentColor === color}
-                              disabled={commentBusy || busy}
-                              onClick={() => setCommentColor(color)}
-                            />
-                          ))}
+                        <div className="comment-color-control">
+                          <div
+                            className="comment-color-picker"
+                            role="group"
+                            aria-label="Comment background color"
+                          >
+                            {commentColors.map((color) => (
+                              <button
+                                key={color}
+                                type="button"
+                                className={`comment-color ${color} ${
+                                  commentColor === color ? "selected" : ""
+                                }`}
+                                aria-label={`Use ${color} comment background`}
+                                title={`${commentColorName(color)} background`}
+                                aria-pressed={commentColor === color}
+                                disabled={commentBusy || busy}
+                                onClick={() => setCommentColor(color)}
+                              />
+                            ))}
+                          </div>
+                          <span className="comment-color-name">
+                            {commentColorName(commentColor)} background
+                          </span>
                         </div>
                         {editingCommentId && (
                           <button
@@ -518,7 +538,12 @@ export function TaskEditor({
                 )}
               </Section>
             </div>
-            <Section title="Related tasks">
+            <CollapsibleSection
+              title="Related tasks"
+              count={draft.related.length}
+              open={relatedOpen}
+              onToggle={() => setRelatedOpen((open) => !open)}
+            >
               <select
                 value=""
                 aria-label="Link a task"
@@ -554,8 +579,13 @@ export function TaskEditor({
                   </div>
                 );
               })}
-            </Section>
-            <Section title="Subtasks">
+            </CollapsibleSection>
+            <CollapsibleSection
+              title="Subtasks"
+              count={draft.subtasks.length}
+              open={subtasksOpen}
+              onToggle={() => setSubtasksOpen((open) => !open)}
+            >
               {draft.subtasks.map((subtask, index) => (
                 <div className="subtask" key={subtask.id || index}>
                   <input
@@ -604,16 +634,17 @@ export function TaskEditor({
               ))}
               <button
                 className="text-button"
-                onClick={() =>
+                onClick={() => {
                   update("subtasks", [
                     ...draft.subtasks,
                     { title: "", done: false },
-                  ])
-                }
+                  ]);
+                  setSubtasksOpen(true);
+                }}
               >
                 ＋ Add subtask
               </button>
-            </Section>
+            </CollapsibleSection>
             {error && (
               <p className="form-error" role="alert">
                 {error}
@@ -654,7 +685,9 @@ function formatCommentDate(comment: TaskComment) {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(date);
-  return comment.updatedAt !== comment.createdAt ? `Edited ${formatted}` : formatted;
+  return comment.updatedAt !== comment.createdAt
+    ? `Edited ${formatted}`
+    : formatted;
 }
 
 function Field({
@@ -685,6 +718,38 @@ function Section({
     <section className={`editor-section ${className}`}>
       <h3>{title}</h3>
       {children}
+    </section>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  count,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="editor-section collapsible-section">
+      <button
+        type="button"
+        className="collapsible-toggle"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span>
+          {title}
+          <small>{count}</small>
+        </span>
+        <ChevronDown className={open ? "open" : ""} size={16} />
+      </button>
+      {open && <div className="collapsible-content">{children}</div>}
     </section>
   );
 }
