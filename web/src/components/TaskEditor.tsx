@@ -17,6 +17,7 @@ import {
   InlineImage,
   prepareEditableMarkdown,
   readImageAsDataUrl,
+  resizeImageReference,
 } from "./inlineImages";
 import { MarkdownPreview } from "./MarkdownPreview";
 
@@ -104,6 +105,16 @@ export function TaskEditor({
   });
   const missingImages = () =>
     findMissingImageReferences(draftRef.current.description, imagesRef.current);
+  const resizeImage = (dataUrl: string, size: number) => {
+    const image = [...imagesRef.current.values()].find(
+      (candidate) => candidate.dataUrl === dataUrl,
+    );
+    if (!image) return;
+    update(
+      "description",
+      resizeImageReference(draftRef.current.description, image.id, size),
+    );
+  };
   const changed = () => JSON.stringify(currentTask()) !== original.current;
 
   useEffect(() => {
@@ -385,13 +396,14 @@ export function TaskEditor({
                     />
                   </>
                 ) : (
-                  <MarkdownPreview
-                    source={hydrateImageReferences(draft.description, images)}
-                    missingImages={findMissingImageReferences(
-                      draft.description,
-                      images,
-                    )}
-                  />
+                <MarkdownPreview
+                  source={hydrateImageReferences(draft.description, images)}
+                  missingImages={findMissingImageReferences(
+                    draft.description,
+                    images,
+                  )}
+                  onImageSizeChange={resizeImage}
+                />
                 )}
               </Section>
               <Section title="Comments" className="comments-section">

@@ -5,19 +5,26 @@ export type InlineImage = {
 };
 
 const dataImagePattern =
-  /!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)\)/g;
+  /!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)(?:\s+"taskpilot-size:(\d{1,3})")?\)/g;
 const imageReferencePattern =
-  /(!?)\[([^\]]*)\]\(taskpilot-image:([a-zA-Z0-9_-]+)\)/g;
+  /(!?)\[([^\]]*)\]\(taskpilot-image:([a-zA-Z0-9_-]+)(?:\s+"taskpilot-size:(\d{1,3})")?\)/g;
+
+export function normalizeImageSize(value: string | number | undefined) {
+  const size = Number(value);
+  return Number.isFinite(size)
+    ? Math.min(100, Math.max(25, Math.round(size)))
+    : 100;
+}
 
 export function prepareEditableMarkdown(source: string) {
   const images = new Map<string, InlineImage>();
   let imageNumber = 0;
   const markdown = source.replace(
     dataImagePattern,
-    (_, alt: string, dataUrl: string) => {
+    (_, alt: string, dataUrl: string, size: string | undefined) => {
       const id = `image-${++imageNumber}`;
       images.set(id, { id, dataUrl, name: alt || "Image" });
-      return imageReference(alt || "Image", id);
+      return imageReference(alt || "Image", id, size);
     },
   );
   return { images, markdown };
@@ -34,9 +41,19 @@ export function hydrateImageReferences(
 ) {
   return source.replace(
     imageReferencePattern,
-    (match, imageMarker: string, alt: string, id: string) => {
+    (
+      match,
+      imageMarker: string,
+      alt: string,
+      id: string,
+      size: string | undefined,
+    ) => {
       const image = images.get(id);
-      return image ? `${imageMarker}[${alt}](${image.dataUrl})` : match;
+      return image
+        ? `${imageMarker}[${alt}](${image.dataUrl}${
+            size ? ` "taskpilot-size:${normalizeImageSize(size)}"` : ""
+          })`
+        : match;
     },
   );
 }
@@ -68,9 +85,22 @@ export function replaceMissingImageReferences(source: string) {
   );
 }
 
-export function imageReference(name: string, id: string) {
+export function imageReference(
+  name: string,
+  id: string,
+  size?: string | number,
+) {
   const alt = name.replace(/[\[\]]/g, "").trim() || "Image";
-  return `![${alt}](taskpilot-image:${id})`;
+  const dimensions = size === undefined ? "" : ` \"taskpilot-size:${normalizeImageSize(size)}\"`;
+  return `![${alt}](taskpilot-image:${id}${dimensions})`;
+}
+
+export function resizeImageReference(source: string, imageID: string, size: number) {
+  return source.replace(
+    imageReferencePattern,
+    (match, imageMarker: string, alt: string, id: string) =>
+      id === imageID ? imageReference(alt, id, size) : match,
+  );
 }
 
 export function readImageAsDataUrl(file: File) {

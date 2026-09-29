@@ -821,13 +821,38 @@ h1 {
 .markdown-preview a {
   color: #4546b7;
 }
-.markdown-preview img {
+.resizable-image {
+  width: 100%;
+  margin: 12px 0;
+}
+.markdown-preview .resizable-image img {
   display: block;
   max-width: 100%;
   height: auto;
-  margin: 12px 0;
   border: 1px solid #e0e4ea;
   border-radius: 7px;
+}
+.image-size-control {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 190px) auto;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid #e1e4ed;
+  border-radius: 6px;
+  color: #687280;
+  background: #fafbfe;
+  font-size: 11px;
+}
+.image-size-control input {
+  accent-color: #5d5cdb;
+}
+.image-size-control small {
+  color: #929aa6;
+  font-size: 10px;
 }
 .markdown-empty {
   margin: 0;

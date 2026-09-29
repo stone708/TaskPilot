@@ -13,6 +13,7 @@ import {
   findMissingImageReferences,
   hydrateImageReferences,
   prepareEditableMarkdown,
+  resizeImageReference,
 } from "./inlineImages";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { TaskBoard } from "./TaskBoard";
@@ -90,6 +91,25 @@ describe("MarkdownPreview", () => {
     expect(container.querySelector("table")).toBeTruthy();
     expect(container.querySelector("script")).toBeNull();
   });
+
+  it("lets an inline image change width while preserving its aspect ratio", () => {
+    const onImageSizeChange = vi.fn();
+    const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const { container } = render(
+      <MarkdownPreview
+        source={`![Diagram](${dataUrl} "taskpilot-size:45")`}
+        onImageSizeChange={onImageSizeChange}
+      />,
+    );
+    const image = screen.getByRole("img", { name: "Diagram" });
+    expect(image.getAttribute("style")).toContain("width: 45%");
+    expect(container.querySelector(".resizable-image img")).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("slider", { name: "Size for Diagram" }), {
+      target: { value: "65" },
+    });
+    expect(onImageSizeChange).toHaveBeenCalledWith(dataUrl, 65);
+  });
 });
 
 describe("inline Markdown images", () => {
@@ -100,6 +120,20 @@ describe("inline Markdown images", () => {
 
     expect(editable.markdown).toContain("taskpilot-image:image-1");
     expect(editable.markdown).not.toContain("iVBORw0KGgo=");
+    expect(hydrateImageReferences(editable.markdown, editable.images)).toBe(
+      source,
+    );
+  });
+
+  it("stores image size in the short editable reference", () => {
+    const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const source = `![Diagram](${dataUrl} "taskpilot-size:60")`;
+    const editable = prepareEditableMarkdown(source);
+
+    expect(editable.markdown).toContain("taskpilot-size:60");
+    expect(
+      resizeImageReference(editable.markdown, "image-1", 40),
+    ).toContain("taskpilot-size:40");
     expect(hydrateImageReferences(editable.markdown, editable.images)).toBe(
       source,
     );
@@ -157,11 +191,15 @@ describe("TaskEditor", () => {
       />,
     );
 
+    fireEvent.change(screen.getByRole("slider", { name: "Size for Diagram" }), {
+      target: { value: "60" },
+    });
     await user.click(screen.getByRole("tab", { name: "Edit" }));
     const editor = screen.getByRole("textbox", { name: "Description" });
     expect((editor as HTMLTextAreaElement).value).toContain(
       "taskpilot-image:image-1",
     );
+    expect((editor as HTMLTextAreaElement).value).toContain("taskpilot-size:60");
     expect((editor as HTMLTextAreaElement).value).not.toContain("iVBORw0KGgo=");
 
     await user.click(screen.getByRole("tab", { name: "Preview" }));
@@ -169,7 +207,9 @@ describe("TaskEditor", () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(
-        expect.objectContaining({ description: `![Diagram](${dataUrl})` }),
+        expect.objectContaining({
+          description: `![Diagram](${dataUrl} "taskpilot-size:60")`,
+        }),
       ),
     );
   });
