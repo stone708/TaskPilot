@@ -34,6 +34,7 @@ type taskCreateArgs struct {
 	Priority    string           `json:"priority,omitempty" jsonschema:"None, Low, Medium, High, or Urgent"`
 	StartAt     *string          `json:"startAt,omitempty" jsonschema:"Start date in YYYY-MM-DD"`
 	DueAt       *string          `json:"dueAt,omitempty" jsonschema:"Due date in YYYY-MM-DD"`
+	PlannedFor  *string          `json:"plannedFor,omitempty" jsonschema:"Day this task is planned for in YYYY-MM-DD"`
 	Tags        []string         `json:"tags,omitempty" jsonschema:"Tags; a leading # is allowed"`
 	Subtasks    []mcpSubtaskArgs `json:"subtasks,omitempty" jsonschema:"Checklist items"`
 	Related     []string         `json:"related,omitempty" jsonschema:"Related task UUIDs or TASK-n identifiers"`
@@ -70,6 +71,7 @@ type taskUpdateArgs struct {
 	Priority    *string           `json:"priority,omitempty" jsonschema:"Replacement priority"`
 	StartAt     *string           `json:"startAt,omitempty" jsonschema:"Replacement start date; null clears it"`
 	DueAt       *string           `json:"dueAt,omitempty" jsonschema:"Replacement due date; null clears it"`
+	PlannedFor  *string           `json:"plannedFor,omitempty" jsonschema:"Replacement planned day; null clears it"`
 	Tags        *[]string         `json:"tags,omitempty" jsonschema:"Replacement tag list"`
 	Subtasks    *[]mcpSubtaskArgs `json:"subtasks,omitempty" jsonschema:"Replacement checklist"`
 	Related     *[]string         `json:"related,omitempty" jsonschema:"Replacement related task list"`
@@ -97,9 +99,9 @@ func newMCPServer(store *Store) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{Name: "task.create", Description: "Create a task with optional dates, tags, subtasks, and related tasks."}, service.create)
 	mcp.AddTool(server, &mcp.Tool{Name: "task.get", Description: "Get a task by UUID or TASK-n identifier."}, service.get)
 	mcp.AddTool(server, &mcp.Tool{Name: "task.list", Description: "List tasks, optionally filtered by scope, status, tag, text, or due date."}, service.list)
-	mcp.AddTool(server, &mcp.Tool{Name: "task.today", Description: "List due, overdue, active, and today-completed tasks in the application timezone."}, service.today)
+	mcp.AddTool(server, &mcp.Tool{Name: "task.today", Description: "List unfinished tasks explicitly planned for today in the application timezone."}, service.today)
 	mcp.AddTool(server, &mcp.Tool{Name: "task.search", Description: "Search all task titles, descriptions, tags, and task numbers."}, service.search)
-	mcp.AddTool(server, &mcp.Tool{Name: "task.update", Description: "Update selected task fields. Include the current version; null clears startAt or dueAt."}, service.update)
+	mcp.AddTool(server, &mcp.Tool{Name: "task.update", Description: "Update selected task fields. Include the current version; null clears startAt, dueAt, or plannedFor."}, service.update)
 	mcp.AddTool(server, &mcp.Tool{Name: "task.complete", Description: "Mark a task Done without refreshing an existing completion time."}, service.complete)
 	mcp.AddTool(server, &mcp.Tool{Name: "task.delete", Description: "Delete a task and clean up its related-task references."}, service.delete)
 	mcp.AddTool(server, &mcp.Tool{Name: "tag.list", Description: "List all tags."}, service.tags)
@@ -117,7 +119,7 @@ func required(value, field string) error {
 func (service *mcpService) create(ctx context.Context, _ *mcp.CallToolRequest, args taskCreateArgs) (*mcp.CallToolResult, any, error) {
 	task, err := service.store.Create(ctx, Task{
 		Title: args.Title, Description: args.Description, Status: args.Status, Priority: args.Priority,
-		StartAt: args.StartAt, DueAt: args.DueAt, Tags: args.Tags, Subtasks: toSubtasks(args.Subtasks), Related: args.Related,
+		StartAt: args.StartAt, DueAt: args.DueAt, PlannedFor: args.PlannedFor, Tags: args.Tags, Subtasks: toSubtasks(args.Subtasks), Related: args.Related,
 	})
 	return nil, task, err
 }

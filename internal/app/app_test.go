@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -57,49 +56,68 @@ func TestTaskLifecycleAndRelations(t *testing.T) {
 	}
 }
 
-func TestTodayShowsUnfinishedStartedTasks(t *testing.T) {
+func TestTodayShowsPlannedTasksAndKeepsCompletionHistory(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
-	today := time.Now().In(s.loc)
-	past := today.AddDate(0, 0, -1).Format("2006-01-02")
-	current := today.Format("2006-01-02")
-	future := today.AddDate(0, 0, 1).Format("2006-01-02")
+	today := time.Now().In(s.loc).Format("2006-01-02")
+	tomorrow := time.Now().In(s.loc).AddDate(0, 0, 1).Format("2006-01-02")
 
-	create := func(title, status string, startAt, dueAt *string) Task {
-		task, err := s.Create(ctx, Task{
-			Title: title, Status: status, StartAt: startAt, DueAt: dueAt,
-		})
-		if err != nil {
-			t.Fatalf("create %q: %v", title, err)
-		}
-		return task
+	planned, err := s.Create(ctx, Task{Title: "Planned today", PlannedFor: &today})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	started := create("Started", "Todo", &current, &future)
-	startedEarlier := create("Started earlier", "Holding", &past, nil)
-	fallbackDue := create("Due without a start date", "Todo", nil, &current)
-	create("Future start overrides due date", "Todo", &future, &current)
-	create("No dates", "Todo", nil, nil)
-	create("Finished today", "Done", &past, &current)
+	past := time.Now().In(s.loc).AddDate(0, 0, -1).Format("2006-01-02")
+	if _, err := s.Create(ctx, Task{Title: "Past plan", PlannedFor: &past}); err == nil || err.Error() != "planned date must be today or later" {
+		t.Fatalf("past planned date error = %v", err)
+	}
+	unplanned, err := s.Create(ctx, Task{Title: "Started but not planned", StartAt: &today})
+	if err != nil {
+		t.Fatal(err)
+	}
+	future, err := s.Create(ctx, Task{Title: "Planned tomorrow", PlannedFor: &tomorrow})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	items, err := s.List(ctx, "today", "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	actual := map[string]bool{}
-	for _, item := range items {
-		actual[item.ID] = true
-		if item.Status == "Done" {
-			t.Fatalf("Today must not include completed task: %#v", item)
-		}
+	if len(items) != 1 || items[0].ID != planned.ID {
+		t.Fatalf("Today tasks = %#v, want only %s; unplanned=%s future=%s", items, planned.ID, unplanned.ID, future.ID)
 	}
-	want := map[string]bool{
-		started.ID:        true,
-		startedEarlier.ID: true,
-		fallbackDue.ID:    true,
+
+	completed, err := s.Update(ctx, planned.ID, map[string]json.RawMessage{
+		"status":  json.RawMessage(`"Done"`),
+		"version": json.RawMessage("1"),
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(actual, want) {
-		t.Fatalf("Today tasks = %#v, want %#v", actual, want)
+	if completed.PlannedFor != nil || completed.CompletedAt == nil {
+		t.Fatalf("completion should clear plan and set completion time: %#v", completed)
+	}
+	day, err := s.Day(ctx, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(day.Planned) != 0 || len(day.Completed) != 1 || day.Completed[0].ID != planned.ID {
+		t.Fatalf("day after completion = %#v", day)
+	}
+
+	reopened, err := s.Update(ctx, planned.ID, map[string]json.RawMessage{
+		"status":  json.RawMessage(`"Todo"`),
+		"version": json.RawMessage("2"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.CompletedAt != nil {
+		t.Fatalf("reopen should clear current completion time: %#v", reopened)
+	}
+	day, err = s.Day(ctx, today)
+	if err != nil || len(day.Completed) != 1 || day.Completed[0].ID != planned.ID {
+		t.Fatalf("completion history must survive reopening: %#v %v", day, err)
 	}
 }
 
@@ -256,7 +274,7 @@ func TestMCPTools(t *testing.T) {
 	var created Task
 	decode(call("task.create", map[string]any{
 		"title": "MCP task", "description": "created through MCP", "status": "Doing",
-		"dueAt": today, "tags": []string{"mcp"}, "related": []string{anchor.ShortID},
+		"dueAt": today, "plannedFor": today, "tags": []string{"mcp"}, "related": []string{anchor.ShortID},
 		"subtasks": []map[string]any{{"title": "Check MCP schema"}},
 	}), &created)
 	if created.ShortID == "" || created.Version != 1 || len(created.Tags) != 1 || len(created.Subtasks) != 1 || len(created.Related) != 1 {

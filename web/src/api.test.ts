@@ -38,6 +38,7 @@ describe("task API payloads", () => {
       priority: "High",
       startAt: null,
       dueAt: "2026-09-22",
+      plannedFor: null,
       tags: ["Web"],
       subtasks: [],
       related: [],

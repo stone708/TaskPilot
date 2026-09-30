@@ -22,6 +22,7 @@
   "priority": "High",
   "startAt": "2026-09-20",
   "dueAt": "2026-09-22",
+  "plannedFor": "2026-09-30",
   "tags": ["release"],
   "subtasks": [{"id":"…","title":"Collect changes","done":false,"position":0}],
   "related": ["another-task-uuid"],
@@ -47,7 +48,7 @@
 
 | 参数 | 含义 |
 | --- | --- |
-| `scope` | `today` 或 `inbox`。`today` 返回未完成且开始日不晚于今天的任务；没有开始日时，到期日不晚于今天会作为兜底。 |
+| `scope` | `today` 或 `inbox`。`today` 返回主动计划到今天且尚未完成的任务。 |
 | `status` | 指定任务状态。 |
 | `tag` | 标签名称，大小写不敏感。 |
 | `q` | 搜索标题、描述、标签和展示编号。 |
@@ -55,6 +56,14 @@
 
 ```bash
 curl 'http://127.0.0.1:8080/api/v1/tasks?scope=today'
+```
+
+### `GET /days/{date}`
+
+返回某一天的工作台数据。`planned` 是仍安排在该日期且未完成的任务；`completed` 是应用时区内当天实际完成过的任务，即使该任务后来重新打开也会保留在历史记录中。
+
+```bash
+curl 'http://127.0.0.1:8080/api/v1/days/2026-09-30'
 ```
 
 ### `POST /tasks`
@@ -73,7 +82,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/tasks \
 
 ### `PATCH /tasks/{id}`
 
-局部更新任务。未传字段保持不变；日期字段传 JSON `null` 会清除日期。更新应传当前 `version`，版本过旧时返回 `409`。
+局部更新任务。未传字段保持不变；日期字段（包括 `plannedFor`）传 JSON `null` 会清除日期。更新应传当前 `version`，版本过旧时返回 `409`。
 
 ```bash
 curl -X PATCH http://127.0.0.1:8080/api/v1/tasks/TASK-101 \

@@ -8,7 +8,7 @@ TaskPilot 是一个本地优先、单用户的个人任务管理器。它将 Rea
 
 - 创建、编辑、删除任务，支持 Todo、Doing、Holding、Done 状态与五级优先级。
 - 支持开始日期、到期日期、标签、描述、子任务、带时间戳的可编辑评论与双向关联任务。
-- Today、Inbox、状态、标签和全局搜索视图；支持 List 与四列 Kanban 视图。Today 显示开始日已到但尚未完成的任务；未设置开始日时，到期日会作为兜底。
+- Today、Inbox、状态、标签和全局搜索视图；支持 List 与四列 Kanban 视图。Today 是主动安排的每日计划：可把未完成任务安排到今天或未来日期，并按日期回看实际完成记录。
 - 描述支持安全的 GitHub Flavored Markdown 预览，包括标题、列表、表格、链接与代码块。
 - 乐观版本号：Web、REST 和 MCP 同时编辑同一任务时，旧版本更新会返回冲突。
 - 本地 REST API、命令行和基于官方 Go SDK 的 MCP Streamable HTTP endpoint。
@@ -49,7 +49,8 @@ go run ./cmd/taskpilot --data /tmp/taskpilot-dev.db serve
 - `C`：新建任务（输入框中不会触发）。
 - `Ctrl/Cmd + K`：聚焦全局搜索。
 - `Esc`：关闭任务编辑框；有未保存修改时会请求确认。
-- 使用页面标题右侧的 **List / Kanban** 切换任务呈现方式。Kanban 保留当前筛选范围，拖动卡片到另一状态列即可更新任务状态。
+- Today 页面可用 **Plan tasks** 选择当天要做的任务；通过日期导航查看过去的完成记录或规划未来日期。
+- 使用非 Today 页标题右侧的 **List / Kanban** 切换任务呈现方式。Kanban 保留当前筛选范围，拖动卡片到另一状态列即可更新任务状态。
 - 点击任务会打开全屏工作区。Description 区域使用更大的 **Edit / Preview** 编辑并预览 Markdown；任务描述保存为原始 Markdown 文本，可继续通过 REST、MCP 和 CLI 使用。
 - 评论会直接保存并显示创建时间；编辑评论会更新其显示时间。可从协调的紫、蓝、薄荷、琥珀和玫瑰色中选择评论背景，不需要再次保存整个任务。
 - 在 Description 的 **Add image** 中可插入 PNG、JPEG、GIF、WebP 或 AVIF 图片（单张最多 5 MB）。图片会作为 Base64 数据 URI 保存在 Markdown 描述中；编辑时显示短引用，避免 Base64 占满输入框。Preview 中可用滑块调整图片宽度，高度会保持原始比例。

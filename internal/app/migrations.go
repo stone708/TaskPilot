@@ -21,6 +21,7 @@ var databaseMigrations = []migration{
 	{version: 2, apply: addTaskQueryIndex},
 	{version: 3, apply: addComments},
 	{version: 4, apply: addCommentColors},
+	{version: 5, apply: addDailyPlanning},
 }
 
 func createInitialSchema(ctx context.Context, tx *sql.Tx) error {
@@ -65,6 +66,21 @@ func addComments(ctx context.Context, tx *sql.Tx) error {
 func addCommentColors(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `ALTER TABLE comments ADD COLUMN color TEXT NOT NULL DEFAULT 'lilac'`)
 	return err
+}
+
+func addDailyPlanning(ctx context.Context, tx *sql.Tx) error {
+	statements := []string{
+		`ALTER TABLE tasks ADD COLUMN planned_for TEXT`,
+		`CREATE INDEX idx_tasks_planned_for_status ON tasks(planned_for, status)`,
+		`CREATE TABLE task_completion_events(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,completed_at TEXT NOT NULL)`,
+		`CREATE INDEX idx_completion_events_completed_at ON task_completion_events(completed_at)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func latestSchemaVersion(migrations []migration) int {

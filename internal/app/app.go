@@ -31,6 +31,7 @@ type Task struct {
 	Priority    string     `json:"priority"`
 	StartAt     *string    `json:"startAt"`
 	DueAt       *string    `json:"dueAt"`
+	PlannedFor  *string    `json:"plannedFor"`
 	Tags        []string   `json:"tags"`
 	Subtasks    []Subtask  `json:"subtasks"`
 	Related     []string   `json:"related"`
@@ -39,6 +40,11 @@ type Task struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	CompletedAt *time.Time `json:"completedAt"`
 	Version     int        `json:"version"`
+}
+type Day struct {
+	Date      string `json:"date"`
+	Planned   []Task `json:"planned"`
+	Completed []Task `json:"completed"`
 }
 type Subtask struct {
 	ID       string `json:"id"`
@@ -136,6 +142,19 @@ func validDate(v *string) error {
 	_, e := time.Parse("2006-01-02", *v)
 	return e
 }
+
+// validPlanDate permits an existing, now-past plan to remain visible in its
+// historical day record. New or moved plans must be for today or a future day.
+func (s *Store) validPlanDate(next, previous *string) error {
+	if next == nil || (previous != nil && *next == *previous) {
+		return nil
+	}
+	if *next < s.now().In(s.loc).Format("2006-01-02") {
+		return errors.New("planned date must be today or later")
+	}
+	return nil
+}
+
 func (s *Store) Create(ctx context.Context, t Task) (Task, error) {
 	if strings.TrimSpace(t.Title) == "" {
 		return t, errors.New("title is required")
@@ -155,6 +174,12 @@ func (s *Store) Create(ctx context.Context, t Task) (Task, error) {
 	if e := validDate(t.DueAt); e != nil {
 		return t, e
 	}
+	if e := validDate(t.PlannedFor); e != nil {
+		return t, e
+	}
+	if e := s.validPlanDate(t.PlannedFor, nil); e != nil {
+		return t, e
+	}
 	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return t, e
@@ -172,10 +197,16 @@ func (s *Store) Create(ctx context.Context, t Task) (Task, error) {
 	if t.Status == "Done" {
 		x := t.CreatedAt
 		t.CompletedAt = &x
+		t.PlannedFor = nil
 	}
-	_, e = tx.ExecContext(ctx, "INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", t.ID, t.ShortID, t.Title, t.Description, t.Status, t.Priority, t.StartAt, t.DueAt, t.CreatedAt.Format(time.RFC3339Nano), t.UpdatedAt.Format(time.RFC3339Nano), timePtr(t.CompletedAt), t.Version)
+	_, e = tx.ExecContext(ctx, "INSERT INTO tasks(id,short_id,title,description,status,priority,start_at,due_at,planned_for,created_at,updated_at,completed_at,version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", t.ID, t.ShortID, t.Title, t.Description, t.Status, t.Priority, t.StartAt, t.DueAt, t.PlannedFor, t.CreatedAt.Format(time.RFC3339Nano), t.UpdatedAt.Format(time.RFC3339Nano), timePtr(t.CompletedAt), t.Version)
 	if e != nil {
 		return t, e
+	}
+	if t.CompletedAt != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO task_completion_events(id,task_id,completed_at) VALUES(?,?,?)", uuid.NewString(), t.ID, timePtr(t.CompletedAt)); e != nil {
+			return t, e
+		}
 	}
 	if _, e = tx.ExecContext(ctx, "UPDATE meta SET value=? WHERE key='next_short_id'", strconv.Itoa(next+1)); e != nil {
 		return t, e
@@ -255,13 +286,13 @@ func (s *Store) Get(ctx context.Context, key string) (Task, error) {
 	return s.loadChildren(ctx, t)
 }
 func (s *Store) query(ctx context.Context, where string, args ...any) (*sql.Rows, error) {
-	return s.db.QueryContext(ctx, `SELECT t.id,t.short_id,t.title,t.description,t.status,t.priority,t.start_at,t.due_at,t.created_at,t.updated_at,t.completed_at,t.version FROM tasks t `+where+` ORDER BY CASE t.priority WHEN 'Urgent' THEN 5 WHEN 'High' THEN 4 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 2 ELSE 1 END DESC, COALESCE(t.due_at,'9999-12-31'),t.created_at DESC`, args...)
+	return s.db.QueryContext(ctx, `SELECT t.id,t.short_id,t.title,t.description,t.status,t.priority,t.start_at,t.due_at,t.planned_for,t.created_at,t.updated_at,t.completed_at,t.version FROM tasks t `+where+` ORDER BY CASE t.priority WHEN 'Urgent' THEN 5 WHEN 'High' THEN 4 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 2 ELSE 1 END DESC, COALESCE(t.due_at,'9999-12-31'),t.created_at DESC`, args...)
 }
 func scan(r *sql.Rows) (Task, error) {
 	t := Task{Tags: make([]string, 0), Subtasks: make([]Subtask, 0), Related: make([]string, 0), Comments: make([]Comment, 0)}
-	var st, du, co sql.NullString
+	var st, du, pl, co sql.NullString
 	var cr, up string
-	e := r.Scan(&t.ID, &t.ShortID, &t.Title, &t.Description, &t.Status, &t.Priority, &st, &du, &cr, &up, &co, &t.Version)
+	e := r.Scan(&t.ID, &t.ShortID, &t.Title, &t.Description, &t.Status, &t.Priority, &st, &du, &pl, &cr, &up, &co, &t.Version)
 	if e != nil {
 		return t, e
 	}
@@ -270,6 +301,9 @@ func scan(r *sql.Rows) (Task, error) {
 	}
 	if du.Valid {
 		t.DueAt = &du.String
+	}
+	if pl.Valid {
+		t.PlannedFor = &pl.String
 	}
 	t.CreatedAt, _ = time.Parse(time.RFC3339Nano, cr)
 	t.UpdatedAt, _ = time.Parse(time.RFC3339Nano, up)
@@ -337,8 +371,8 @@ func (s *Store) List(ctx context.Context, scope, status, tag, q, from, to string
 	args := []any{}
 	today := time.Now().In(s.loc).Format("2006-01-02")
 	if scope == "today" {
-		where += " AND t.status != 'Done' AND ((t.start_at IS NOT NULL AND t.start_at <= ?) OR (t.start_at IS NULL AND t.due_at IS NOT NULL AND t.due_at <= ?))"
-		args = append(args, today, today)
+		where += " AND t.status != 'Done' AND t.planned_for=?"
+		args = append(args, today)
 	} else if scope == "inbox" {
 		where += " AND t.due_at IS NULL"
 	}
@@ -382,6 +416,50 @@ func (s *Store) List(ctx context.Context, scope, status, tag, q, from, to string
 	}
 	return out, rs.Err()
 }
+
+// Day returns the active plan and immutable completion record for a date in the
+// application timezone. Past days are read-only in the UI, but use the same data.
+func (s *Store) Day(ctx context.Context, date string) (Day, error) {
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return Day{}, err
+	}
+	planned, err := s.listWhere(ctx, "WHERE t.status != 'Done' AND t.planned_for=?", date)
+	if err != nil {
+		return Day{}, err
+	}
+	start, err := time.ParseInLocation("2006-01-02", date, s.loc)
+	if err != nil {
+		return Day{}, err
+	}
+	end := start.AddDate(0, 0, 1)
+	completed, err := s.listWhere(ctx, "WHERE EXISTS(SELECT 1 FROM task_completion_events e WHERE e.task_id=t.id AND e.completed_at>=? AND e.completed_at<?)", start.UTC().Format(time.RFC3339Nano), end.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return Day{}, err
+	}
+	return Day{Date: date, Planned: planned, Completed: completed}, nil
+}
+
+func (s *Store) listWhere(ctx context.Context, where string, args ...any) ([]Task, error) {
+	rs, err := s.query(ctx, where, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rs.Close()
+	out := make([]Task, 0)
+	for rs.Next() {
+		task, err := scan(rs)
+		if err != nil {
+			return nil, err
+		}
+		task, err = s.loadChildren(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, task)
+	}
+	return out, rs.Err()
+}
+
 func (s *Store) Update(ctx context.Context, key string, patch map[string]json.RawMessage) (Task, error) {
 	old, e := s.Get(ctx, key)
 	if e != nil {
@@ -403,7 +481,7 @@ func (s *Store) Update(ctx context.Context, key string, patch map[string]json.Ra
 	json.Unmarshal(b, &next)
 	for k, v := range patch {
 		switch k {
-		case "title", "description", "status", "priority", "startAt", "dueAt", "tags", "subtasks", "related":
+		case "title", "description", "status", "priority", "startAt", "dueAt", "plannedFor", "tags", "subtasks", "related":
 			var o map[string]json.RawMessage
 			json.Unmarshal(b, &o)
 			o[k] = v
@@ -420,11 +498,18 @@ func (s *Store) Update(ctx context.Context, key string, patch map[string]json.Ra
 	if e = validDate(next.DueAt); e != nil {
 		return old, e
 	}
+	if e = validDate(next.PlannedFor); e != nil {
+		return old, e
+	}
+	if e = s.validPlanDate(next.PlannedFor, old.PlannedFor); e != nil {
+		return old, e
+	}
 	next.Version = old.Version + 1
 	next.UpdatedAt = s.now()
 	if next.Status == "Done" && old.Status != "Done" {
 		x := next.UpdatedAt
 		next.CompletedAt = &x
+		next.PlannedFor = nil
 	}
 	if next.Status != "Done" {
 		next.CompletedAt = nil
@@ -434,9 +519,14 @@ func (s *Store) Update(ctx context.Context, key string, patch map[string]json.Ra
 		return old, e
 	}
 	defer tx.Rollback()
-	_, e = tx.ExecContext(ctx, "UPDATE tasks SET title=?,description=?,status=?,priority=?,start_at=?,due_at=?,updated_at=?,completed_at=?,version=? WHERE id=?", next.Title, next.Description, next.Status, next.Priority, next.StartAt, next.DueAt, next.UpdatedAt.Format(time.RFC3339Nano), timePtr(next.CompletedAt), next.Version, next.ID)
+	_, e = tx.ExecContext(ctx, "UPDATE tasks SET title=?,description=?,status=?,priority=?,start_at=?,due_at=?,planned_for=?,updated_at=?,completed_at=?,version=? WHERE id=?", next.Title, next.Description, next.Status, next.Priority, next.StartAt, next.DueAt, next.PlannedFor, next.UpdatedAt.Format(time.RFC3339Nano), timePtr(next.CompletedAt), next.Version, next.ID)
 	if e != nil {
 		return old, e
+	}
+	if next.Status == "Done" && old.Status != "Done" {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO task_completion_events(id,task_id,completed_at) VALUES(?,?,?)", uuid.NewString(), next.ID, timePtr(next.CompletedAt)); e != nil {
+			return old, e
+		}
 	}
 	for _, q := range []string{"DELETE FROM task_tags WHERE task_id=?", "DELETE FROM subtasks WHERE task_id=?"} {
 		if _, e = tx.ExecContext(ctx, q, next.ID); e != nil {
@@ -572,6 +662,19 @@ func (s *Store) SetTimezone(ctx context.Context, n string) error {
 func Server(s *Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, map[string]any{"ok": true}) })
+	mux.HandleFunc("/api/v1/days/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		date := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/days/"), "/")
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			respond(w, err, nil)
+			return
+		}
+		day, err := s.Day(r.Context(), date)
+		respond(w, err, day)
+	})
 	mux.HandleFunc("/api/v1/tasks", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			items, e := s.List(r.Context(), r.URL.Query().Get("scope"), r.URL.Query().Get("status"), r.URL.Query().Get("tag"), r.URL.Query().Get("q"), r.URL.Query().Get("from"), r.URL.Query().Get("to"))

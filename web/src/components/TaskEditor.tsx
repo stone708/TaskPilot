@@ -51,6 +51,13 @@ const parseTags = (value: string) => [
 const commentColorName = (color: CommentColor) =>
   `${color[0].toUpperCase()}${color.slice(1)}`;
 
+const todayDate = () => {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+};
+
 export function TaskEditor({
   task,
   allTasks,
@@ -346,6 +353,16 @@ export function TaskEditor({
                   value={draft.dueAt || ""}
                   onChange={(event) =>
                     update("dueAt", event.target.value || null)
+                  }
+                />
+              </Field>
+              <Field label="Planned for">
+                <input
+                  type="date"
+                  min={todayDate()}
+                  value={draft.plannedFor || ""}
+                  onChange={(event) =>
+                    update("plannedFor", event.target.value || null)
                   }
                 />
               </Field>
