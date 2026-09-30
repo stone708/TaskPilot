@@ -428,6 +428,14 @@ describe("task board updates", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((path: string, init?: RequestInit) => {
+        if (path.startsWith("/api/v1/days/"))
+          return Promise.resolve(
+            response({
+              date: new Date().toISOString().slice(0, 10),
+              planned: [item],
+              completed: [],
+            }),
+          );
         if (path.startsWith("/api/v1/tasks?"))
           return Promise.resolve(response([item]));
         if (path === "/api/v1/tasks/task-1" && init?.method === "PATCH") {
@@ -445,6 +453,7 @@ describe("task board updates", () => {
 
     render(<App />);
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "All Tasks" }));
     await user.click(await screen.findByRole("button", { name: "Kanban" }));
 
     const dataTransfer = {
@@ -473,57 +482,58 @@ describe("task board updates", () => {
   });
 });
 
-describe("task list workflow", () => {
-  it("uses Today start language, one creation action, and a quick start control", async () => {
+describe("today planning workflow", () => {
+  it("shows only the daily plan and lets a task be added to it", async () => {
     const today = new Date();
-    const startAt = [
+    const date = [
       today.getFullYear(),
       String(today.getMonth() + 1).padStart(2, "0"),
       String(today.getDate()).padStart(2, "0"),
     ].join("-");
-    let current = task({ startAt, dueAt: null, status: "Todo", version: 1 });
-    const response = (body: unknown) => ({
-      ok: true,
-      json: async () => body,
+    const planned = task({ plannedFor: date, status: "Todo", version: 1 });
+    let candidate = task({
+      id: "task-2",
+      shortId: "TASK-2",
+      title: "Choose daily priorities",
+      plannedFor: null,
+      version: 1,
     });
+    const response = (body: unknown) => ({ ok: true, json: async () => body });
     const fetchMock = vi.fn((path: string, init?: RequestInit) => {
-      if (path === "/api/v1/tasks/task-1" && init?.method === "PATCH") {
-        current = { ...current, status: "Doing", version: 2 };
-        return Promise.resolve(response(current));
+      if (path === `/api/v1/days/${date}`)
+        return Promise.resolve(
+          response({ date, planned: [planned], completed: [] }),
+        );
+      if (path === "/api/v1/tasks/task-2" && init?.method === "PATCH") {
+        candidate = { ...candidate, plannedFor: date, version: 2 };
+        return Promise.resolve(response(candidate));
       }
-      if (path.startsWith("/api/v1/tasks"))
-        return Promise.resolve(response([current]));
+      if (path === "/api/v1/tasks")
+        return Promise.resolve(response([planned, candidate]));
       if (path === "/api/v1/tags") return Promise.resolve(response([]));
-      return Promise.resolve(response({ today: 1, inbox: 0, all: 1, todo: 1 }));
+      return Promise.resolve(response({ today: 1, inbox: 0, all: 2, todo: 2 }));
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByText("Tasks ready to start")).toBeTruthy();
-    expect(screen.getByLabelText("Today summary").textContent).toContain(
-      "1 ready",
+    expect(await screen.findByText("Your plan for today")).toBeTruthy();
+    expect((await screen.findByLabelText("Daily summary")).textContent).toContain(
+      "1 planned",
     );
-    expect(screen.getByLabelText("Today summary").textContent).toContain(
-      "0 doing",
-    );
-    expect(screen.getByLabelText("Today summary").textContent).toContain(
-      "0 overdue",
-    );
-    expect(screen.queryByText("Create quickly")).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Add Task" })).toHaveLength(1);
-    expect(screen.getByText("Starts today")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Today's plan/ })).toBeTruthy();
+    expect(screen.queryByText("Tasks ready to start")).toBeNull();
 
-    await user.click(
-      screen.getByRole("button", { name: "Start TASK-1: Write docs" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Plan tasks" }));
+    expect(screen.getByRole("dialog", { name: "Plan tasks" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Add" }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/v1/tasks/task-1",
+        "/api/v1/tasks/task-2",
         expect.objectContaining({
           method: "PATCH",
-          body: expect.stringContaining('"status":"Doing"'),
+          body: expect.stringContaining(`"plannedFor":"${date}"`),
         }),
       ),
     );

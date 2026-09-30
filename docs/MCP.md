@@ -25,9 +25,9 @@ TaskPilot 只接受本机 `localhost` 或 `127.0.0.1` 请求。MCP 服务是无�
 | `task.create` | 创建任务；可传标题、描述、状态、优先级、日期、标签、子任务和关联任务。 |
 | `task.get` | 通过 UUID 或 `TASK-数字` 读取一个任务。 |
 | `task.list` | 按范围、状态、标签、关键词或到期日期列出任务。 |
-| `task.today` | 按 TaskPilot 当前时区读取尚未完成且开始日已到的任务；没有开始日时以到期日为兜底。 |
+| `task.today` | 按 TaskPilot 当前时区读取主动计划到今天且未完成的任务。 |
 | `task.search` | 搜索全部任务的标题、描述、标签和编号。 |
-| `task.update` | 局部更新任务；必须传当前 `version`，`startAt`、`dueAt` 传 `null` 可清除日期。 |
+| `task.update` | 局部更新任务；必须传当前 `version`，`startAt`、`dueAt`、`plannedFor` 传 `null` 可清除日期。 |
 | `task.complete` | 将任务标记为 Done。 |
 | `task.delete` | 删除任务并清理关联关系。 |
 | `tag.list` | 列出标签。 |
@@ -43,6 +43,7 @@ TaskPilot 只接受本机 `localhost` 或 `127.0.0.1` 请求。MCP 服务是无�
   "version": 3,
   "status": "Doing",
   "dueAt": null,
+  "plannedFor": "2026-09-30",
   "tags": ["work", "release"]
 }
 ```

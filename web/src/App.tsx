@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
+  ChevronLeft,
   ChevronRight,
   Command,
   Inbox,
@@ -20,6 +21,14 @@ import { emptyTask, Scope, statuses, Status, Task } from "./types";
 
 type Notice = { kind: "error" | "success"; text: string };
 type ViewMode = "list" | "board";
+type DayView = { date: string; planned: Task[]; completed: Task[] };
+
+const localDate = (value = new Date()) =>
+  [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ].join("-");
 
 const titleFor = (scope: Scope, tag: string, status: string) => {
   if (scope === "tag") return `#${tag}`;
@@ -45,24 +54,36 @@ export function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [selectedDay, setSelectedDay] = useState(localDate);
+  const [dayView, setDayView] = useState<DayView | null>(null);
+  const [planning, setPlanning] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       const params = new URLSearchParams();
-      if (scope === "today" || scope === "inbox") params.set("scope", scope);
+      if (scope === "inbox") params.set("scope", scope);
       if (scope === "tag") params.set("tag", activeTag);
       if (scope === "status") params.set("status", activeStatus);
       if (scope === "search") params.set("q", query);
       setLoading(true);
       try {
         const [items, all, tagList, counts] = await Promise.all([
-          taskApi.list(params, signal),
+          scope === "today"
+            ? taskApi.day(selectedDay, signal)
+            : taskApi.list(params, signal),
           taskApi.getAll(signal),
           taskApi.tags(),
           taskApi.stats(),
         ]);
-        setTasks(items);
+        if (scope === "today") {
+          const day = items as DayView;
+          setDayView(day);
+          setTasks([...day.planned, ...day.completed]);
+        } else {
+          setDayView(null);
+          setTasks(items as Task[]);
+        }
         setAllTasks(all);
         setTags(tagList);
         setStats(counts);
@@ -70,7 +91,7 @@ export function App() {
         setLoading(false);
       }
     },
-    [activeStatus, activeTag, query, scope],
+    [activeStatus, activeTag, query, scope, selectedDay],
   );
 
   useEffect(() => {
@@ -122,6 +143,7 @@ export function App() {
     setActiveTag(next === "tag" ? value : "");
     setActiveStatus(next === "status" ? value : "");
     if (next !== "search") setQuery("");
+    if (next === "today") setSelectedDay(localDate());
     setDrawerOpen(false);
   };
 
@@ -199,6 +221,34 @@ export function App() {
     }
   };
 
+  const planTask = async (task: Task) => {
+    setBusy(true);
+    try {
+      const saved = await taskApi.save({ ...task, plannedFor: selectedDay });
+      setAllTasks((items) =>
+        items.map((item) => (item.id === saved.id ? saved : item)),
+      );
+      setNotice({
+        kind: "success",
+        text: `${saved.shortId} added to the plan`,
+      });
+      await load();
+    } catch (cause) {
+      setNotice({
+        kind: "error",
+        text: cause instanceof Error ? cause.message : "Could not plan task.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const shiftDay = (amount: number) => {
+    const date = new Date(`${selectedDay}T12:00:00`);
+    date.setDate(date.getDate() + amount);
+    setSelectedDay(localDate(date));
+  };
+
   const groups = useMemo(
     () =>
       statuses.map(
@@ -208,18 +258,6 @@ export function App() {
     [tasks],
   );
   const hasTasks = groups.some(([, items]) => items.length > 0);
-  const todaySummary = useMemo(
-    () => ({
-      ready: tasks.filter(
-        (task) => task.status === "Todo" || task.status === "Holding",
-      ).length,
-      doing: tasks.filter((task) => task.status === "Doing").length,
-      overdue: tasks.filter(
-        (task) => task.dueAt !== null && isBeforeToday(task.dueAt),
-      ).length,
-    }),
-    [tasks],
-  );
 
   return (
     <div className="app-shell">
@@ -266,42 +304,87 @@ export function App() {
         >
           <div className="page-heading">
             <div>
-              <h1>{titleFor(scope, activeTag, activeStatus)}</h1>
+              <h1>
+                {scope === "today"
+                  ? formatDay(selectedDay)
+                  : titleFor(scope, activeTag, activeStatus)}
+              </h1>
               <p>
                 {scope === "today"
-                  ? "Tasks ready to start"
+                  ? selectedDay === localDate()
+                    ? "Your plan for today"
+                    : selectedDay < localDate()
+                      ? "A read-only record of this day"
+                      : "Plan ahead with a focused task list"
                   : "Your personal workspace"}
               </p>
-              {scope === "today" && (
-                <div className="today-summary" aria-label="Today summary">
+              {scope === "today" && dayView && (
+                <div className="today-summary" aria-label="Daily summary">
                   <span>
-                    <b>{todaySummary.ready}</b> ready
+                    <b>{dayView.planned.length}</b> planned
                   </span>
                   <span>
-                    <b>{todaySummary.doing}</b> doing
+                    <b>{dayView.completed.length}</b> completed
                   </span>
-                  <span className={todaySummary.overdue ? "overdue" : ""}>
-                    <b>{todaySummary.overdue}</b> overdue
+                  <span>
+                    <b>{dayView.planned.length}</b> remaining
                   </span>
                 </div>
               )}
             </div>
-            <div className="view-switch" aria-label="Choose task view">
-              <button
-                className={viewMode === "list" ? "active" : ""}
-                onClick={() => setViewMode("list")}
-                aria-pressed={viewMode === "list"}
-              >
-                <List size={15} /> List
-              </button>
-              <button
-                className={viewMode === "board" ? "active" : ""}
-                onClick={() => setViewMode("board")}
-                aria-pressed={viewMode === "board"}
-              >
-                <KanbanSquare size={15} /> Kanban
-              </button>
-            </div>
+            {scope === "today" ? (
+              <div className="day-actions">
+                <div className="day-navigation" aria-label="Choose day">
+                  <button
+                    aria-label="Previous day"
+                    onClick={() => shiftDay(-1)}
+                  >
+                    <ChevronLeft size={15} />
+                  </button>
+                  <input
+                    aria-label="Plan date"
+                    type="date"
+                    value={selectedDay}
+                    onChange={(event) =>
+                      setSelectedDay(event.target.value || localDate())
+                    }
+                  />
+                  <button aria-label="Next day" onClick={() => shiftDay(1)}>
+                    <ChevronRight size={15} />
+                  </button>
+                  <button
+                    className="text-button"
+                    onClick={() => setSelectedDay(localDate())}
+                  >
+                    Today
+                  </button>
+                </div>
+                <button
+                  className="primary"
+                  disabled={selectedDay < localDate()}
+                  onClick={() => setPlanning(true)}
+                >
+                  <Plus size={16} /> Plan tasks
+                </button>
+              </div>
+            ) : (
+              <div className="view-switch" aria-label="Choose task view">
+                <button
+                  className={viewMode === "list" ? "active" : ""}
+                  onClick={() => setViewMode("list")}
+                  aria-pressed={viewMode === "list"}
+                >
+                  <List size={15} /> List
+                </button>
+                <button
+                  className={viewMode === "board" ? "active" : ""}
+                  onClick={() => setViewMode("board")}
+                  aria-pressed={viewMode === "board"}
+                >
+                  <KanbanSquare size={15} /> Kanban
+                </button>
+              </div>
+            )}
           </div>
           {notice && (
             <div
@@ -323,6 +406,15 @@ export function App() {
           )}
           {loading ? (
             <div className="empty">Loading tasks…</div>
+          ) : scope === "today" ? (
+            <TodayPlan
+              selectedDay={selectedDay}
+              planned={dayView?.planned || []}
+              completed={dayView?.completed || []}
+              movingTaskId={movingTaskId}
+              onOpen={setEditing}
+              onStatusChange={moveTask}
+            />
           ) : !hasTasks ? (
             <div className="empty">
               {scope === "search"
@@ -352,6 +444,18 @@ export function App() {
           )}
         </section>
       </main>
+      {planning && (
+        <PlanTasksDialog
+          date={selectedDay}
+          tasks={allTasks}
+          busy={busy}
+          onClose={() => setPlanning(false)}
+          onPlan={async (task) => {
+            await planTask(task);
+            setPlanning(false);
+          }}
+        />
+      )}
       {editing && (
         <TaskEditor
           task={editing}
@@ -504,27 +608,172 @@ function TaskGroup({
   );
 }
 
+function TodayPlan({
+  selectedDay,
+  planned,
+  completed,
+  movingTaskId,
+  onOpen,
+  onStatusChange,
+}: {
+  selectedDay: string;
+  planned: Task[];
+  completed: Task[];
+  movingTaskId: string | null;
+  onOpen: (task: Task) => void;
+  onStatusChange: (task: Task, status: Status) => Promise<void>;
+}) {
+  const isToday = selectedDay === localDate();
+  return (
+    <div className="today-plan">
+      <section className="day-task-section">
+        <h2>
+          {isToday ? "Today's plan" : "Planned"}
+          <span>{planned.length}</span>
+        </h2>
+        {planned.length ? (
+          planned.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              moving={movingTaskId === task.id}
+              onOpen={onOpen}
+              onStatusChange={onStatusChange}
+            />
+          ))
+        ) : (
+          <div className="empty day-empty">
+            {selectedDay < localDate()
+              ? "No planned tasks were kept for this day."
+              : "No tasks planned yet. Choose Plan tasks to make this day clear."}
+          </div>
+        )}
+      </section>
+      <section className="day-task-section completed-day-section">
+        <h2>
+          {isToday ? "Completed today" : "Completed"}
+          <span>{completed.length}</span>
+        </h2>
+        {completed.length ? (
+          completed.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              moving={false}
+              historyComplete
+              onOpen={onOpen}
+              onStatusChange={onStatusChange}
+            />
+          ))
+        ) : (
+          <p className="day-note">No tasks completed on this day.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PlanTasksDialog({
+  date,
+  tasks,
+  busy,
+  onPlan,
+  onClose,
+}: {
+  date: string;
+  tasks: Task[];
+  busy: boolean;
+  onPlan: (task: Task) => Promise<void>;
+  onClose: () => void;
+}) {
+  const candidates = tasks.filter(
+    (task) => task.status !== "Done" && task.plannedFor !== date,
+  );
+  return (
+    <div
+      className="overlay"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <article
+        className="dialog plan-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Plan tasks"
+      >
+        <header>
+          <div>
+            <b>Plan tasks</b>
+            <small>{formatDay(date)}</small>
+          </div>
+          <button aria-label="Close" onClick={onClose} disabled={busy}>
+            <X />
+          </button>
+        </header>
+        <div className="plan-dialog-body">
+          {candidates.length ? (
+            candidates.map((task) => (
+              <div className="plan-candidate" key={task.id}>
+                <div>
+                  <b>{task.title}</b>
+                  <span>
+                    {task.shortId}
+                    {task.plannedFor ? ` · Planned ${task.plannedFor}` : ""}
+                  </span>
+                </div>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => void onPlan(task)}
+                >
+                  Add
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="empty">
+              Every open task is already planned for this day.
+            </div>
+          )}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function formatDay(date: string) {
+  const value = new Date(`${date}T12:00:00`);
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  }).format(value);
+}
+
 function TaskRow({
   task,
   moving,
+  historyComplete = false,
   onOpen,
   onStatusChange,
 }: {
   task: Task;
   moving: boolean;
+  historyComplete?: boolean;
   onOpen: (task: Task) => void;
   onStatusChange: (task: Task, status: Status) => Promise<void>;
 }) {
-  const action = quickAction(task);
+  const action = historyComplete ? null : quickAction(task);
   const timing = taskTiming(task);
   return (
-    <div className={`task-row ${task.status === "Done" ? "done" : ""}`}>
+    <div
+      className={`task-row ${task.status === "Done" || historyComplete ? "done" : ""}`}
+    >
       <button
         className="task-open"
         aria-label={`Open ${task.shortId}: ${task.title}`}
         onClick={() => onOpen(task)}
       >
-        <i className={task.status.toLowerCase()} />
+        <i className={historyComplete ? "done" : task.status.toLowerCase()} />
         <span className="task-copy">
           <strong>{task.title}</strong>
           <small>
@@ -587,10 +836,4 @@ function taskTiming(task: Task): { label: string; overdue: boolean } {
     return { label: `Started ${Math.abs(days)}d ago`, overdue: false };
   if (days === 0) return { label: "Starts today", overdue: false };
   return { label: `Starts ${date}`, overdue: false };
-}
-
-function isBeforeToday(date: string) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return new Date(`${date}T00:00:00`) < today;
 }

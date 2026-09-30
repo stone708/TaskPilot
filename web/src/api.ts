@@ -10,6 +10,7 @@ export type TaskInput = Pick<
   | "priority"
   | "startAt"
   | "dueAt"
+  | "plannedFor"
   | "tags"
   | "subtasks"
   | "related"
@@ -44,6 +45,7 @@ export function taskInput(task: Task): TaskInput {
     priority: task.priority,
     startAt: task.startAt,
     dueAt: task.dueAt,
+    plannedFor: task.plannedFor,
     tags: task.tags,
     subtasks: task.subtasks,
     related: task.related,
@@ -62,6 +64,18 @@ export const taskApi = {
     ),
   tags: async () => (await request<string[] | null>("/tags")) || [],
   stats: () => request<Record<string, number>>("/stats"),
+  day: async (date: string, signal?: AbortSignal) => {
+    const day = await request<{
+      date: string;
+      planned: Partial<Task>[];
+      completed: Partial<Task>[];
+    }>(`/days/${date}`, undefined, signal);
+    return {
+      ...day,
+      planned: day.planned.map(normalizeTask),
+      completed: day.completed.map(normalizeTask),
+    };
+  },
   save: async (task: Task) =>
     normalizeTask(
       await request<Partial<Task>>(task.id ? `/tasks/${task.id}` : "/tasks", {
