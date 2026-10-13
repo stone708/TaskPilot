@@ -79,6 +79,20 @@ describe("task board", () => {
 });
 
 describe("MarkdownPreview", () => {
+  it("preserves entered line breaks alongside Markdown formatting", () => {
+    const { container } = render(
+      <MarkdownPreview
+        source={"First line\n**Second line**\nThird line\n\n- Item one\n- Item two\n\n```\ncode one\ncode two\n```"}
+      />,
+    );
+    const paragraph = container.querySelector(".markdown-preview > p");
+    expect(paragraph?.querySelectorAll("br").length).toBe(2);
+    expect(paragraph?.querySelector("strong")?.textContent).toBe("Second line");
+    expect(container.querySelectorAll("li").length).toBe(2);
+    expect(container.querySelector("pre code")?.textContent).toBe("code one\ncode two\n");
+    expect(container.querySelector("pre br")).toBeNull();
+  });
+
   it("renders GFM while leaving raw HTML inert", () => {
     const { container } = render(
       <MarkdownPreview

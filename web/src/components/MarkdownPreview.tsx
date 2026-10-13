@@ -1,5 +1,6 @@
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 import {
   MissingInlineImage,
   replaceMissingImageReferences,
@@ -37,7 +38,7 @@ export function MarkdownPreview({
         </p>
       )}
       <Markdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkBreaks]}
         urlTransform={(url) =>
           safeInlineImage.test(url) ? url : defaultUrlTransform(url)
         }
